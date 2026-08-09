@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"time"
 
 	"github.com/jstoup111/ledger-demo/internal/ledger"
 
@@ -94,4 +95,24 @@ func (s *SQLite) Account(id string) (ledger.Account, error) {
 		return ledger.Account{}, fmt.Errorf("read account %q: %w", id, err)
 	}
 	return account, nil
+}
+
+// Append stores a transaction.
+func (s *SQLite) Append(transaction ledger.Transaction) error {
+	if _, err := s.db.Exec(`
+		INSERT INTO transactions (id, account_id, amount, description, created_at)
+		VALUES (?, ?, ?, ?, ?)
+	`, transaction.ID, transaction.AccountID, transaction.Amount, transaction.Description, transaction.CreatedAt.Format(time.RFC3339Nano)); err != nil {
+		return fmt.Errorf("append transaction %q: %w", transaction.ID, err)
+	}
+	return nil
+}
+
+// CountTransactions returns the total number of transactions across all accounts.
+func (s *SQLite) CountTransactions() (int, error) {
+	var count int
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM transactions`).Scan(&count); err != nil {
+		return 0, fmt.Errorf("count transactions: %w", err)
+	}
+	return count, nil
 }
