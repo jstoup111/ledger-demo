@@ -102,8 +102,7 @@ message by **equality** must be updated by that step to the FR-1 text.
 5. Commit: "httpapi: validate a free-text carried rejection value"
 
 **Files:** `internal/httpapi/message.go`, `internal/httpapi/message_test.go`
-**Wired-into:** `internal/httpapi/message.go#messageFor` (consumed by the `amount_zero` and
-`amount_malformed` branches)
+**Wired-into:** `internal/httpapi/message.go#messageFor`
 **Dependencies:** none
 
 ### Task 2: Character-count carried value validator
@@ -120,7 +119,7 @@ message by **equality** must be updated by that step to the FR-1 text.
 5. Commit: "httpapi: validate a carried description character count"
 
 **Files:** `internal/httpapi/message.go`, `internal/httpapi/message_test.go`
-**Wired-into:** `internal/httpapi/message.go#messageFor` (the `description_too_long` branch)
+**Wired-into:** `internal/httpapi/message.go#messageFor`
 **Dependencies:** none
 
 ### Task 3: Integer-cents carried value validator
@@ -138,8 +137,7 @@ message by **equality** must be updated by that step to the FR-1 text.
 5. Commit: "httpapi: validate a carried amount in integer cents"
 
 **Files:** `internal/httpapi/message.go`, `internal/httpapi/message_test.go`
-**Wired-into:** `internal/httpapi/message.go#messageFor` (the `balance_would_go_negative` and
-`balance_overflow` branches)
+**Wired-into:** `internal/httpapi/message.go#messageFor`
 **Dependencies:** none
 
 ### Task 4: The seven plain sentences, and the generic fallback
@@ -286,8 +284,7 @@ message by **equality** must be updated by that step to the FR-1 text.
 5. Commit: "httpapi: compose the JSON error message through one composer"
 
 **Files:** `internal/httpapi/errors.go`, `internal/httpapi/errors_test.go`
-**Wired-into:** `internal/httpapi/router.go#handlePostTransaction`,
-`internal/httpapi/router.go#handleAccountTransactions` (both call `writeJSONError`)
+**Wired-into:** `internal/httpapi/router.go#handlePostTransaction`, `internal/httpapi/router.go#handleAccountTransactions`
 **Dependencies:** 4
 
 ### Task 11: The posting handler builds the rejection context
@@ -310,7 +307,7 @@ message by **equality** must be updated by that step to the FR-1 text.
 
 **Files:** `internal/httpapi/router.go`, `internal/httpapi/errors.go`,
 `internal/httpapi/router_test.go`
-**Wired-into:** `internal/httpapi/message.go#messageFor` (the context it consumes)
+**Wired-into:** `internal/httpapi/message.go#messageFor`
 **Dependencies:** 6, 7, 10
 
 ### Task 12: The balance is derived on the programmatic rejection path
@@ -352,7 +349,7 @@ message by **equality** must be updated by that step to the FR-1 text.
 5. Commit: "httpapi: prove a script-bearing amount is inert in the error body"
 
 **Files:** `internal/httpapi/errors_test.go`, `internal/httpapi/router_test.go`
-**Wired-into:** same as Task 10 (assertions only — consumes existing surface)
+**Wired-into:** same as Task 10
 **Dependencies:** 11, 12
 
 > **Gate after Batch B:** the programmatic surface is complete and named; every identifier and status
@@ -381,7 +378,7 @@ message by **equality** must be updated by that step to the FR-1 text.
 5. Commit: "httpapi: carry the offending value on the rejection redirect"
 
 **Files:** `internal/httpapi/router.go`, `internal/httpapi/router_test.go`
-**Wired-into:** `internal/httpapi/router.go#handlePage` (reads the parameter back on the next request)
+**Wired-into:** `internal/httpapi/router.go#handlePage`
 **Dependencies:** 6, 7, 8, 11
 
 ### Task 15: The page composes through the one composer; the duplicate table is deleted
@@ -404,7 +401,7 @@ message by **equality** must be updated by that step to the FR-1 text.
 5. Commit: "httpapi: render the page rejection through the one composer"
 
 **Files:** `internal/httpapi/router.go`, `internal/httpapi/router_test.go`
-**Wired-into:** `web/index.html.tmpl` (`{{.ErrorMessage}}`, unchanged markup)
+**Wired-into:** `internal/httpapi/router.go#handlePage`
 **Dependencies:** 5, 9, 14
 
 ### Task 16: The page degrades and escapes
@@ -429,7 +426,7 @@ message by **equality** must be updated by that step to the FR-1 text.
 5. Commit: "httpapi: prove the page degrades and escapes a tampered rejection value"
 
 **Files:** `internal/httpapi/router_test.go`
-**Wired-into:** same as Task 15 (assertions only — consumes existing surface)
+**Wired-into:** same as Task 15
 **Dependencies:** 15
 
 ### Task 17: The two surfaces say the identical thing
@@ -450,7 +447,7 @@ message by **equality** must be updated by that step to the FR-1 text.
 5. Commit: "httpapi: assert page and JSON rejections read identically"
 
 **Files:** `internal/httpapi/router_test.go`
-**Wired-into:** same as Task 15 (assertions only — consumes existing surface)
+**Wired-into:** same as Task 15
 **Dependencies:** 13, 15
 
 > **Gate after Batch C:** both surfaces are named and provably identical; the panel is still between
@@ -477,7 +474,7 @@ message by **equality** must be updated by that step to the FR-1 text.
 5. Commit: "httpapi: pin the frozen identifiers, route count, and nothing-recorded invariant"
 
 **Files:** `internal/httpapi/router_test.go`, `internal/httpapi/errors_test.go`
-**Wired-into:** same as Task 10 (assertions only — consumes existing surface)
+**Wired-into:** same as Task 10
 **Dependencies:** 10, 15
 
 ### Task 19: Document the rejection messages
@@ -497,7 +494,7 @@ message by **equality** must be updated by that step to the FR-1 text.
 4. Commit: "docs: document the rejection message shape and refresh the status note"
 
 **Files:** `README.md`
-**Wired-into:** none (documentation — no production surface)
+**Wired-into:** none (no new production surface)
 **Dependencies:** 17, 18
 
 > **Gate after Batch D:** `make test` passes under 10 seconds with `-count=2`; `gofmt -l .` is empty;
