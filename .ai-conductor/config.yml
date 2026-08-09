@@ -2,18 +2,81 @@
 
 harness_version: ">=0.99.0"
 
+# --- Provider routing --------------------------------------------------------
+# Codex writes the code; Claude makes the judgement calls.
+#
+# Provider order: codex first, claude as fallback, for every step except the
+# DECIDE/gating steps pinned below — those stay on claude explicitly. This
+# mirrors reporting_app's routing so behavior transfers between the two repos.
+#
+# Each fallback provider resolves its OWN native defaults for model, effort, and
+# escalation; nothing leaks across from the provider that failed. Cross-provider
+# fallback fires only on run-wide provider unavailability or complete exhaustion
+# of a provider's native model ladder — never on ordinary failure, auth error,
+# rate limit, timeout, or rejection. Every transition logs a warning naming the
+# step, the failed provider, and the reason.
+#
+# Deliberately NOT pinned here: build inherits Codex's own policy defaults
+# (gpt-5.6-terra at medium effort for this step) rather than copying
+# reporting_app's `model: gpt-5.6-sol, effort: low`. That pin was operator tuning
+# for a long Rails suite in July; this repo is 32 small Go TDD tasks, and leaving
+# it unpinned keeps the retry-escalation ladder intact.
+#
+# CAUTION: the array form above is mutually exclusive with a `steps.build.tdd`
+# block. That block's validation reads the TOP-LEVEL llm_provider and requires it
+# to be a string, so adding one here fails config validation with
+# "steps.build.tdd requires llm_provider to be a string". Per-TDD-phase
+# (red/green) model control would mean collapsing this to a scalar provider and
+# inverting every pin below.
+llm_provider: [codex, claude]
+
+steps:
+  # DECIDE — requirements, design, and traceability judgement. Wrong output here
+  # cascades into every downstream step, so it stays on claude.
+  explore:
+    llm_provider: claude
+  prd:
+    llm_provider: claude
+  architecture_review:
+    llm_provider: claude
+  conflict_check:
+    llm_provider: claude
+  coherence_check:
+    llm_provider: claude
+
+  # Acceptance specs are treated as judgement, not implementation: the step turns
+  # acceptance criteria into assertions, and a mis-read criterion produces a test
+  # that passes for the wrong reason.
+  acceptance_specs:
+    llm_provider: claude
+
+  # Gates that render a verdict on work already done.
+  build_review:
+    llm_provider: claude
+  prd_audit:
+    llm_provider: claude
+  architecture_review_as_built:
+    llm_provider: claude
+
+  # Semantic conflict resolution — a wrong merge can silently revert completed
+  # work, which is a judgement failure rather than a coding one.
+  rebase:
+    llm_provider: claude
+
+  finish:
+    llm_provider: claude
+
+# Everything not pinned above runs on codex, notably: build (the TDD/pipeline
+# implementation lane), stories, plan, complexity, architecture_diagram,
+# wiring_check, manual_test, retro, remediate, and attribution_verify.
+# `test_suite` and `worktree` are mechanical and dispatch no model at all.
+
 # Required for the native pre-SHIP aggregate gate. Name one project-owned
 # command that composes every authoritative test suite.
 # test_suite:
 #   command: npm test
 #   working_directory: .
 #   timeout_seconds: 1800
-
-# --- Per-step overrides (optional) -------------------------------------------
-# steps:
-#   explore:
-#     model: haiku
-#     effort: low
 
 # complexity:
 #   default_tier: M
