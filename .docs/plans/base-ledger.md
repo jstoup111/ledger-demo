@@ -660,6 +660,14 @@ value constructed and passed inward)
 3. Uncomment the reserved block in `web/style.css` — `.balance` at `4rem`/700, `.error` with
    `#fdecea` and a 6px `#b3261e` left border, tables with `border-collapse: collapse`. Values come
    from the styleguide unchanged.
+4. Set the `rem` basis explicitly so `1rem` is 20px, e.g. an `html { font-size: 20px }` rule.
+
+> **Amended 2026-08-09 by operator decision:** step 4 added. `manual_test` found no `html`
+> `font-size` rule, so `1rem` resolves against the browser default of 16px, not the `20px` on `body`
+> — `rem` inherits from the root element, never from `body`. That puts `table { font-size: 1rem }`
+> at 16px, below the projector legibility floor, and silently shrinks `h1` (`2rem`) and `.balance`
+> (`4rem`) too. The styleguide's type scale states "Body 20px (`1rem` base)", so 20px is the intended
+> basis and this is a compliance bug, not a change to the design.
 4. Verify test passes (GREEN)
 5. Commit: "web: activate the balance, error, and table styles"
 
@@ -696,6 +704,14 @@ value constructed and passed inward)
 > so FR-4's empty state is reachable on stage, and the first account's sum is pinned to `128350`
 > cents so Story 1's and the API contract's worked examples hold against seed data. `manual_test`
 > kicked this task back twice against the old shape.
+>
+> **Seeded descriptions must not name anything on the non-goals list.** `manual_test` found the
+> current fixture showing "Interest credit", "Transfer fee", "Account fee", and "Automatic transfer"
+> (×5) — interest, fees, and transfers are all explicit non-goals, and these would appear on the
+> projector in a demo whose whole premise is that those features do not exist. Three of them were
+> padding that nets to zero, added only to keep a balance assertion alive. Replace them with
+> descriptions drawn from ordinary deposit-account activity, keeping each account's count in range
+> and `acct-1`'s sum at exactly `128350` cents.
 
 **Files:** `cmd/server/seed.go`, `cmd/server/seed_test.go`
 **Wired-into:** `cmd/server/main.go#seed` (the `seed` subcommand `make seed`/`make reset` already run)

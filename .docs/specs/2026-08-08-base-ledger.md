@@ -110,6 +110,15 @@ drawn from here; if any already exists, the demo is ruined.
   between eight and twelve plausible transactions, identical on every reset with no run-to-run
   variation of any kind.
 
+  > **Provenance of this amendment** (recorded because `manual_test` flagged it as "unresolved
+  > provenance", correctly — an amendment asserting operator authority should show its basis). The
+  > operator was presented with this exact contradiction and the two candidate resolutions, chose
+  > "amend FR-15 so the third account is seeded empty" over "keep FR-15 and give Stories 1–2 a
+  > fixture", and then instructed: *"fix fr-15 and reseal for me. i am going to go to bed and want it
+  > fixed so the build runs through the night."* The rationale given and accepted was that no
+  > account-creation capability exists anywhere in this spec, so an empty seeded account is the only
+  > way FR-4's state can be shown on stage.
+  >
   > **Amended 2026-08-09 by operator decision:** the assertion above is retained as the record of
   > what was originally approved, and it contradicted FR-4 and Stories 1–2, which require an account
   > with **no** transactions. Both cannot hold for one seed dataset, and there is no

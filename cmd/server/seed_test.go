@@ -29,8 +29,8 @@ func TestLoadSeedDataIsDeterministic(t *testing.T) {
 	if got, want := []string{first.accounts[0].ID, first.accounts[1].ID, first.accounts[2].ID}, []string{"acct-1", "acct-2", "acct-3"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("seed account IDs = %v, want %v", got, want)
 	}
-	if len(first.transactions) < 24 || len(first.transactions) > 36 {
-		t.Fatalf("seed transactions = %d, want 24-36", len(first.transactions))
+	if len(first.transactions) < 16 || len(first.transactions) > 24 {
+		t.Fatalf("seed transactions = %d, want 16-24", len(first.transactions))
 	}
 
 	idPattern := regexp.MustCompile(`^txn-\d{4}$`)
@@ -56,8 +56,22 @@ func TestLoadSeedDataIsDeterministic(t *testing.T) {
 	if acct1Balance != 128350 {
 		t.Fatalf("acct-1 balance = %d cents, want 128350", acct1Balance)
 	}
+	// FR-15, amended 2026-08-09: the first two accounts carry 8-12 transactions
+	// and acct-3 is seeded EMPTY, so FR-4's empty-history state is reachable on
+	// stage. Nothing in this system can create an account, and draining a balance
+	// to zero leaves a populated list, so an empty seeded account is the only way
+	// that state exists. This guard is deliberately per-account rather than a bare
+	// total: a total-only check is what let a fixture violating the per-account
+	// shape pass green in earlier cycles.
 	for _, account := range first.accounts {
-		if got := len(perAccount[account.ID]); got < 8 || got > 12 {
+		got := len(perAccount[account.ID])
+		if account.ID == "acct-3" {
+			if got != 0 {
+				t.Fatalf("account %q transactions = %d, want 0 — it is seeded empty", account.ID, got)
+			}
+			continue
+		}
+		if got < 8 || got > 12 {
 			t.Fatalf("account %q transactions = %d, want 8-12", account.ID, got)
 		}
 	}
