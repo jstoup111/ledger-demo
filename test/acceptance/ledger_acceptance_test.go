@@ -464,10 +464,17 @@ func TestAcceptanceProgrammaticPostingMatchesTheForm(t *testing.T) {
 	// rejected for the same rule. The codes come from the API response contract;
 	// the sentinel behind each is asserted by the domain's own table (plan Task 18).
 	//
-	// Covers: FR-12, FR-12a, FR-12b, FR-12c, FR-12d, FR-12e
+	// Covers: FR-12, FR-12a, FR-12b, FR-12c, FR-12d, FR-12e, plus balance_overflow,
+	// which has no FR (added to the contract during implementation, 2026-08-09 — see
+	// .docs/decisions/api-response-contract.md).
 	t.Run("both content types reject the same input for the same rule", func(t *testing.T) {
 		tooLong := strings.Repeat("d", 141)
 		hugeDebit := "-99999999"
+
+		// acct-3 is seeded empty and is not touched by any other subtest in this
+		// function, so it is safe to prime to the maximum representable balance
+		// without disturbing accountID's balance-dependent assertions later on.
+		overflowAccountID := a.accounts()[2].ID
 
 		cases := []struct {
 			name        string
@@ -476,19 +483,32 @@ func TestAcceptanceProgrammaticPostingMatchesTheForm(t *testing.T) {
 			description string
 			wantCode    string
 			wantStatus  int
+			setupAmount string // dollars string for a prerequisite accepted deposit; empty when none is needed
 		}{
-			{"unknown account", "acct-nope", "25", "Valid", "account_not_found", http.StatusNotFound},
-			{"zero amount", accountID, "0", "Valid", "amount_zero", http.StatusBadRequest},
-			{"whitespace description", accountID, "25", "   ", "description_empty", http.StatusBadRequest},
-			{"description too long", accountID, "25", tooLong, "description_too_long", http.StatusBadRequest},
-			{"malformed amount", accountID, "abc", "Valid", "amount_malformed", http.StatusBadRequest},
-			{"balance would go negative", accountID, hugeDebit, "Valid", "balance_would_go_negative", http.StatusBadRequest},
+			{"unknown account", "acct-nope", "25", "Valid", "account_not_found", http.StatusNotFound, ""},
+			{"zero amount", accountID, "0", "Valid", "amount_zero", http.StatusBadRequest, ""},
+			{"whitespace description", accountID, "25", "   ", "description_empty", http.StatusBadRequest, ""},
+			{"description too long", accountID, "25", tooLong, "description_too_long", http.StatusBadRequest, ""},
+			{"malformed amount", accountID, "abc", "Valid", "amount_malformed", http.StatusBadRequest, ""},
+			{"balance would go negative", accountID, hugeDebit, "Valid", "balance_would_go_negative", http.StatusBadRequest, ""},
+			// Priming to math.MaxInt64 cents and posting one more cent overflows
+			// int64 on the fold — reachable over real HTTP with a single setup
+			// deposit, not only at the domain unit-test level.
+			{"balance would overflow", overflowAccountID, "0.01", "Valid", "balance_overflow", http.StatusBadRequest, "92233720368547758.07"},
 		}
 
 		seen := map[string]string{}
 		for _, tc := range cases {
 			t.Run(tc.name, func(t *testing.T) {
 				path := "/api/accounts/" + url.PathEscape(tc.account) + "/transactions"
+
+				if tc.setupAmount != "" {
+					setup := a.postJSON(path, fmt.Sprintf(`{"amount":%q,"description":"Setup deposit"}`, tc.setupAmount))
+					if setup.status != http.StatusCreated {
+						t.Fatalf("setup deposit status = %d, want 201; body:\n%s", setup.status, setup.body)
+					}
+				}
+
 				countBefore := a.transactionCount(accountID)
 
 				// JSON branch: typed code and documented status.
@@ -521,7 +541,7 @@ func TestAcceptanceProgrammaticPostingMatchesTheForm(t *testing.T) {
 				}
 
 				if prior, ok := seen[tc.wantCode]; ok {
-					t.Errorf("code %q already reported by %q — the six codes must be pairwise distinct",
+					t.Errorf("code %q already reported by %q — the codes must be pairwise distinct",
 						tc.wantCode, prior)
 				}
 				seen[tc.wantCode] = tc.name

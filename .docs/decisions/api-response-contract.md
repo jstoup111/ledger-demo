@@ -3,8 +3,9 @@
 **Status:** Accepted
 **Date:** 2026-08-08
 
-The contract stories assert against. Deliberately tiny: three JSON endpoints, one error shape, six
-error codes. No envelope, no pagination, no versioning — this API is read by `curl` on a projector.
+The contract stories assert against. Deliberately tiny: three JSON endpoints, one error shape, seven
+error codes (six at Acceptance; `balance_overflow` added below, see the 2026-08-09 addendum). No
+envelope, no pagination, no versioning — this API is read by `curl` on a projector.
 
 ## Conventions
 
@@ -76,7 +77,7 @@ never `Accept` — a browser form post's `Accept` header lists HTML alongside ot
 reliable signal.
 
 **Unrecognized `error` code on the page.** The `error` value arrives in the URL and is therefore
-client-supplied. A value that is not one of the six codes below renders a **generic** rejection
+client-supplied. A value that is not one of the codes below renders a **generic** rejection
 message. It never renders an empty panel, and it is escaped on output like any other untrusted
 value.
 
@@ -98,6 +99,15 @@ One shape, always:
 | `description_too_long` | `400` | Description exceeds 140 characters | FR-12d |
 | `amount_malformed` | `400` | Amount is not a well-formed money value | FR-12e |
 | `balance_would_go_negative` | `400` | The transaction would take the balance below zero; nothing is recorded | FR-12f |
+| `balance_overflow` | `400` | Folding the account's transactions (or this transaction) as `int64` cents would overflow; nothing is recorded | — |
+
+**Addendum, 2026-08-09:** `balance_overflow` was added during implementation, after this contract
+was Accepted, and was missing from the table above until now. It is not a new rule — money has
+always been `int64` cents (Convention above), and folding a transaction log over `int64` can
+overflow in principle even though no seeded or demo-realistic balance can reach `math.MaxInt64`
+cents. The guard (`checkedAdd` in `internal/ledger/balance.go`) existed and was already mapped at
+the HTTP boundary; only its documentation here was missing. This addition is additive — the six
+original codes, their statuses, and their rules are unchanged.
 
 Each code corresponds 1:1 to a domain sentinel error, mapped once at the HTTP boundary
 (`adr-2026-08-08-sentinel-errors-for-domain-failures.md`). Tests assert both `errors.Is` on the
