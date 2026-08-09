@@ -220,6 +220,71 @@ func TestRouterPostsTransactionsForJSONAndFormRequests(t *testing.T) {
 	})
 }
 
+func TestRouterRejectsMalformedJSONAmountsWithoutAppending(t *testing.T) {
+	store := &routerTestStore{
+		accounts:     []ledger.Account{{ID: "acct-1", Name: "Checking"}},
+		transactions: map[string][]ledger.Transaction{"acct-1": {{Amount: 10000}}},
+	}
+	router, err := NewRouter(store)
+	if err != nil {
+		t.Fatalf("NewRouter() error = %v, want nil", err)
+	}
+
+	for _, tt := range []struct {
+		name string
+		body string
+	}{
+		{name: "invalid JSON", body: `{"amount":"-42.50"`},
+		{name: "omitted amount", body: `{"description":"Coffee"}`},
+		{name: "numeric amount", body: `{"amount":-42.50,"description":"Coffee"}`},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			countBefore, err := store.CountTransactions()
+			if err != nil {
+				t.Fatalf("CountTransactions() error = %v", err)
+			}
+
+			rec := postTransaction(router, "/api/accounts/acct-1/transactions", "application/json", tt.body)
+			if got, want := rec.Code, http.StatusBadRequest; got != want {
+				t.Fatalf("status = %d, want %d; body = %s", got, want, rec.Body.String())
+			}
+			var response errorEnvelope
+			if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+				t.Fatalf("response is not JSON: %v; body = %s", err, rec.Body.String())
+			}
+			if got, want := response.Error.Code, "amount_malformed"; got != want {
+				t.Errorf("error code = %q, want %q", got, want)
+			}
+			countAfter, err := store.CountTransactions()
+			if err != nil {
+				t.Fatalf("CountTransactions() error = %v", err)
+			}
+			if got, want := countAfter, countBefore; got != want {
+				t.Errorf("transactions after rejected request = %d, want %d", got, want)
+			}
+		})
+	}
+
+	t.Run("extra JSON field is ignored", func(t *testing.T) {
+		countBefore, err := store.CountTransactions()
+		if err != nil {
+			t.Fatalf("CountTransactions() error = %v", err)
+		}
+
+		rec := postTransaction(router, "/api/accounts/acct-1/transactions", "application/json", `{"amount":"-42.50","description":"Coffee","ignored":"value"}`)
+		if got, want := rec.Code, http.StatusCreated; got != want {
+			t.Fatalf("status = %d, want %d; body = %s", got, want, rec.Body.String())
+		}
+		countAfter, err := store.CountTransactions()
+		if err != nil {
+			t.Fatalf("CountTransactions() error = %v", err)
+		}
+		if got, want := countAfter, countBefore+1; got != want {
+			t.Errorf("transactions after accepted request = %d, want %d", got, want)
+		}
+	})
+}
+
 func postTransaction(router http.Handler, path, contentType, body string) *httptest.ResponseRecorder {
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(body))
