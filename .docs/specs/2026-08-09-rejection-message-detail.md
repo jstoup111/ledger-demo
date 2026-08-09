@@ -127,6 +127,29 @@ Additionally out of scope for this feature specifically:
   the same rejection twice — once in the browser, once with `curl` — reads the same sentence both
   times.
 
+  > **Amended 2026-08-09 by operator decision — product-scope boundary for FR-4.** The assertion
+  > above is retained verbatim; this note settles a question it left open rather than changing it.
+  >
+  > **"One and the same rejection" means a rejected submission** — the six validation rules applied to
+  > `POST /api/accounts/{id}/transactions`. It does **not** extend to read errors.
+  >
+  > Concretely: `internal/httpapi/router.go:276-284` serves an unknown account on
+  > `GET /api/accounts/{id}/transactions` through plain `writeJSONError`, unenriched, and that is
+  > **correct as written**. A listing 404 is not a rejected submission; nothing was submitted, so
+  > there is no offending value to name and no scripted stage moment to support. The page has no
+  > rejection-panel equivalent of that error either — an unknown account renders the base-ledger
+  > not-found page, whose behavior belongs to that feature's spec and is out of scope here.
+  >
+  > **Why this boundary and not the broader one.** `prd_audit` raised the ambiguity at ~60% confidence
+  > and recorded that the PRD "does not settle" it — the spec never intended to decide it, which is
+  > itself evidence the narrow reading was the intent. The broader reading would additionally require
+  > the base-ledger not-found page's sentence to match this API error character for character, which
+  > amends another feature's shipped behavior from inside this one.
+  >
+  > **Provenance.** The operator was shown both readings with their consequences and chose "rejected
+  > submissions only". Cross-surface message consistency for *read* errors is deliberately left as
+  > possible separate work with its own spec, not silently dropped.
+
 ### Degrading safely
 
 - **FR-5** When the offending value is unavailable or not plausible for the rule that was reported,
