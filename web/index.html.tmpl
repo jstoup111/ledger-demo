@@ -18,6 +18,7 @@
     {{end}}
 
     {{if .AccountNotFound}}
+    <p class="requested-account">Requested account: <code>{{.RequestedAccount}}</code></p>
     {{else}}
     <p class="balance">{{.Balance}}</p>
 

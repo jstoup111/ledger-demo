@@ -57,12 +57,13 @@ type pageTransaction struct {
 }
 
 type pageData struct {
-	Accounts        []pageAccount
-	Balance         string
-	ErrorMessage    string
-	AccountNotFound bool
-	FormAction      string
-	Transactions    []pageTransaction
+	Accounts         []pageAccount
+	Balance          string
+	ErrorMessage     string
+	AccountNotFound  bool
+	RequestedAccount string
+	FormAction       string
+	Transactions     []pageTransaction
 }
 
 func handlePage(page *template.Template, store ledger.Store) http.HandlerFunc {
@@ -92,6 +93,7 @@ func handlePage(page *template.Template, store ledger.Store) http.HandlerFunc {
 
 		selected := accounts[0]
 		if requested := r.URL.Query().Get("account"); requested != "" {
+			data.RequestedAccount = requested
 			found := false
 			for _, account := range accounts {
 				if account.ID == requested {

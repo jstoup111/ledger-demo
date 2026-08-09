@@ -369,6 +369,19 @@ func TestRouterRendersPageErrorStates(t *testing.T) {
 		}
 	})
 
+	t.Run("script-like unknown account is rendered escaped", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/?account=%3Cscript%3Ealert(1)%3C%2Fscript%3E", nil))
+		body := rec.Body.String()
+
+		if !strings.Contains(body, "&lt;script&gt;alert(1)&lt;/script&gt;") {
+			t.Errorf("unknown account value is not rendered escaped; body = %s", body)
+		}
+		if strings.Contains(strings.ToLower(body), "<script") {
+			t.Errorf("unknown account value must not render a raw script tag; body = %s", body)
+		}
+	})
+
 	t.Run("unknown account preserves a specific requested error", func(t *testing.T) {
 		rec := httptest.NewRecorder()
 		router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/?account=acct-nope&error=amount_malformed", nil))
