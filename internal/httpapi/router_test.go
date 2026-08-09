@@ -227,6 +227,7 @@ func TestRouterRendersAccountPageMarkup(t *testing.T) {
 		for _, markup := range []string{
 			`class="balance">$1,283.50`,
 			`<form method="post" action="/api/accounts/acct-1/transactions">`,
+			`<th>Recorded</th>`,
 		} {
 			if !strings.Contains(body, markup) {
 				t.Errorf("selected account page does not contain %q; body = %s", markup, body)
@@ -243,6 +244,13 @@ func TestRouterRendersAccountPageMarkup(t *testing.T) {
 				if previous >= position {
 					t.Errorf("page transaction order differs from JSON order %q then %q; body = %s", jsonTransactions[index-1].Description, transaction.Description, body)
 				}
+			}
+			createdAt, err := time.Parse(time.RFC3339, transaction.CreatedAt)
+			if err != nil || createdAt.Location() != time.UTC || !strings.HasSuffix(transaction.CreatedAt, "Z") {
+				t.Errorf("JSON transaction created_at = %q, want UTC RFC3339", transaction.CreatedAt)
+			}
+			if !strings.Contains(body, "<td>"+transaction.CreatedAt+"</td>") {
+				t.Errorf("selected account page does not render JSON transaction timestamp %q; body = %s", transaction.CreatedAt, body)
 			}
 		}
 	})

@@ -197,6 +197,58 @@ func TestSQLiteTransactionsOrdersSameTimestampByIDDescending(t *testing.T) {
 	}
 }
 
+func TestSQLiteTransactionsOrdersByChronologicalCreatedAt(t *testing.T) {
+	tests := []struct {
+		name         string
+		transactions []ledger.Transaction
+		wantIDs      []string
+	}{
+		{
+			name: "fractional second precision",
+			transactions: []ledger.Transaction{
+				{ID: "txn-earlier", AccountID: "acct-1", Amount: 100, Description: "earlier", CreatedAt: time.Date(2026, time.August, 8, 10, 0, 0, 100_000_000, time.UTC)},
+				{ID: "txn-later", AccountID: "acct-1", Amount: 200, Description: "later", CreatedAt: time.Date(2026, time.August, 8, 10, 0, 0, 900_000_000, time.UTC)},
+			},
+			wantIDs: []string{"txn-later", "txn-earlier"},
+		},
+		{
+			name: "source UTC offsets",
+			transactions: []ledger.Transaction{
+				{ID: "txn-earlier", AccountID: "acct-1", Amount: 100, Description: "earlier", CreatedAt: time.Date(2026, time.August, 8, 10, 30, 0, 0, time.FixedZone("UTC+2", 2*60*60))},
+				{ID: "txn-later", AccountID: "acct-1", Amount: 200, Description: "later", CreatedAt: time.Date(2026, time.August, 8, 9, 45, 0, 0, time.UTC)},
+			},
+			wantIDs: []string{"txn-later", "txn-earlier"},
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			store, err := Open(":memory:")
+			if err != nil {
+				t.Fatalf("Open() error = %v", err)
+			}
+			t.Cleanup(func() { _ = store.db.Close() })
+
+			if err := store.InsertAccount(ledger.Account{ID: "acct-1", Name: "First"}); err != nil {
+				t.Fatalf("InsertAccount() error = %v", err)
+			}
+			for _, transaction := range test.transactions {
+				if err := store.Append(transaction); err != nil {
+					t.Fatalf("Append(%q) error = %v", transaction.ID, err)
+				}
+			}
+
+			transactions, err := store.Transactions("acct-1")
+			if err != nil {
+				t.Fatalf("Transactions() error = %v", err)
+			}
+			if got := transactionIDs(transactions); !reflect.DeepEqual(got, test.wantIDs) {
+				t.Fatalf("Transactions() IDs = %#v, want %#v", got, test.wantIDs)
+			}
+		})
+	}
+}
+
 func TestSQLiteTransactionsForExistingAccountWithoutRowsReturnsEmptySlice(t *testing.T) {
 	store, err := Open(":memory:")
 	if err != nil {

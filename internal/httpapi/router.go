@@ -53,6 +53,7 @@ type pageAccount struct {
 type pageTransaction struct {
 	Amount      string
 	Description string
+	RecordedAt  string
 }
 
 type pageData struct {
@@ -129,6 +130,7 @@ func handlePage(page *template.Template, store ledger.Store) http.HandlerFunc {
 			data.Transactions = append(data.Transactions, pageTransaction{
 				Amount:      formatDollars(transaction.Amount),
 				Description: transaction.Description,
+				RecordedAt:  transaction.CreatedAt.UTC().Format(time.RFC3339),
 			})
 		}
 

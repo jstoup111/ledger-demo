@@ -104,10 +104,11 @@ func (s *SQLite) Account(id string) (ledger.Account, error) {
 
 // Append stores a transaction.
 func (s *SQLite) Append(transaction ledger.Transaction) error {
+	createdAt := transaction.CreatedAt.UTC().Format("2006-01-02T15:04:05.000000000Z07:00")
 	if _, err := s.db.Exec(`
 		INSERT INTO transactions (id, account_id, amount, description, created_at)
 		VALUES (?, ?, ?, ?, ?)
-	`, transaction.ID, transaction.AccountID, transaction.Amount, transaction.Description, transaction.CreatedAt.Format(time.RFC3339Nano)); err != nil {
+	`, transaction.ID, transaction.AccountID, transaction.Amount, transaction.Description, createdAt); err != nil {
 		return fmt.Errorf("append transaction %q: %w", transaction.ID, err)
 	}
 	return nil

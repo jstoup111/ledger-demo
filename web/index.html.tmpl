@@ -31,9 +31,9 @@
     <section aria-label="Transactions">
       {{if .Transactions}}
       <table>
-        <thead><tr><th>Description</th><th>Amount</th></tr></thead>
+        <thead><tr><th>Description</th><th>Amount</th><th>Recorded</th></tr></thead>
         <tbody>
-          {{range .Transactions}}<tr><td>{{.Description}}</td><td>{{.Amount}}</td></tr>{{end}}
+          {{range .Transactions}}<tr><td>{{.Description}}</td><td>{{.Amount}}</td><td>{{.RecordedAt}}</td></tr>{{end}}
         </tbody>
       </table>
       {{else}}
