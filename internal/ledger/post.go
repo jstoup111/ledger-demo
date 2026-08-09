@@ -3,10 +3,12 @@ package ledger
 import (
 	"fmt"
 	"strings"
+
+	"github.com/jstoup111/ledger-demo/internal/clock"
 )
 
 // PostTransaction validates and records a transaction for an account.
-func PostTransaction(store Store, accountID string, amount int64, description string) (Transaction, error) {
+func PostTransaction(clock clock.Clock, store Store, accountID string, amount int64, description string) (Transaction, error) {
 	if _, err := store.Account(accountID); err != nil {
 		return Transaction{}, fmt.Errorf("posting transaction: %w", err)
 	}
@@ -27,5 +29,20 @@ func PostTransaction(store Store, accountID string, amount int64, description st
 		return Transaction{}, fmt.Errorf("posting transaction: %w", ErrBalanceWouldGoNegative)
 	}
 
-	return Transaction{}, nil
+	count, err := store.CountTransactions()
+	if err != nil {
+		return Transaction{}, fmt.Errorf("posting transaction: %w", err)
+	}
+	transaction := Transaction{
+		ID:          fmt.Sprintf("txn-%04d", count+1),
+		AccountID:   accountID,
+		Amount:      amount,
+		Description: description,
+		CreatedAt:   clock.Now(),
+	}
+	if err := store.Append(transaction); err != nil {
+		return Transaction{}, fmt.Errorf("posting transaction: %w", err)
+	}
+
+	return transaction, nil
 }
