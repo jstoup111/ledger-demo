@@ -84,10 +84,18 @@ func freeTextCarriedValue(value string) (string, bool) {
 		return "", false
 	}
 
+	hasNonSpaceRune := false
 	for _, r := range value {
-		if unicode.IsControl(r) {
+		if !unicode.IsGraphic(r) {
 			return "", false
 		}
+		if !unicode.IsSpace(r) {
+			hasNonSpaceRune = true
+		}
+	}
+
+	if !hasNonSpaceRune {
+		return "", false
 	}
 
 	return value, true

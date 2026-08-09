@@ -137,7 +137,6 @@ func handlePage(page *template.Template, store ledger.Store) http.HandlerFunc {
 		}
 		data.ErrorMessage = messageFor(errorCode, messageContext{
 			value:        detail,
-			accountID:    requested,
 			balance:      balance,
 			balanceKnown: true,
 		})

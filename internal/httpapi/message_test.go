@@ -379,6 +379,9 @@ func TestFreeTextCarriedValue(t *testing.T) {
 		{name: "tab", input: "value\tnext", want: false},
 		{name: "nul", input: "value\x00next", want: false},
 		{name: "next line", input: "value\u0085next", want: false},
+		{name: "space", input: " ", want: false},
+		{name: "non-breaking space", input: "\u00a0", want: false},
+		{name: "format character", input: "\u200d", want: false},
 	}
 
 	for _, tt := range tests {

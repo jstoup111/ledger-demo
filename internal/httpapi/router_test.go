@@ -741,6 +741,16 @@ func TestRouterComposesDetailedPageRejectionMessages(t *testing.T) {
 		}
 	})
 
+	t.Run("resolved account ignores crafted account-not-found error", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/?account=acct-1&error=account_not_found", nil))
+
+		_, panel := pageErrorPanel(t, rec.Body.String())
+		if got, want := strings.TrimSpace(panel), "Account not found."; got != want {
+			t.Errorf("error panel = %q, want %q", got, want)
+		}
+	})
+
 	t.Run("script-like amount detail is escaped visible text", func(t *testing.T) {
 		rec := httptest.NewRecorder()
 		router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/?account=acct-1&error=amount_malformed&detail=%3Cscript%3Ealert%281%29%3C%2Fscript%3E", nil))
@@ -1760,6 +1770,24 @@ func TestRouterEnrichesMalformedAmountMessagesConsistentlyForPageAndJSON(t *test
 			amount:   "<script>alert(1)</script>",
 			wantPage: "Amount is malformed. Submitted: &lt;script&gt;alert(1)&lt;/script&gt;.",
 			wantJSON: "Amount is malformed. Submitted: <script>alert(1)</script>.",
+		},
+		{
+			name:     "space",
+			amount:   " ",
+			wantPage: "Amount is malformed.",
+			wantJSON: "Amount is malformed.",
+		},
+		{
+			name:     "non-breaking space",
+			amount:   "\u00a0",
+			wantPage: "Amount is malformed.",
+			wantJSON: "Amount is malformed.",
+		},
+		{
+			name:     "format character",
+			amount:   "\u200d",
+			wantPage: "Amount is malformed.",
+			wantJSON: "Amount is malformed.",
 		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
