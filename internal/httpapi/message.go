@@ -23,12 +23,18 @@ func messageFor(identifier string, context messageContext) string {
 		}
 		return "Account not found."
 	case "amount_zero":
+		if value, ok := freeTextCarriedValue(context.value); ok {
+			return "Amount must not be zero. Submitted: " + value + "."
+		}
 		return "Amount must not be zero."
 	case "description_empty":
 		return "Description must not be empty."
 	case "description_too_long":
 		return "Description is too long."
 	case "amount_malformed":
+		if value, ok := freeTextCarriedValue(context.value); ok {
+			return "Amount is malformed. Submitted: " + value + "."
+		}
 		return "Amount is malformed."
 	case "balance_would_go_negative":
 		return "Balance would go negative."

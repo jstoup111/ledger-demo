@@ -70,6 +70,83 @@ func TestMessageForIncludesRequestedAccountOnlyForAccountNotFound(t *testing.T) 
 	}
 }
 
+func TestMessageForNamesSubmittedAmountForAmountRejections(t *testing.T) {
+	tests := []struct {
+		name         string
+		identifier   string
+		value        string
+		want         string
+		rejectsValue bool
+	}{
+		{
+			name:       "zero amount",
+			identifier: "amount_zero",
+			value:      "0.00",
+			want:       "Amount must not be zero. Submitted: 0.00.",
+		},
+		{
+			name:       "malformed amount",
+			identifier: "amount_malformed",
+			value:      "12.3.4",
+			want:       "Amount is malformed. Submitted: 12.3.4.",
+		},
+		{
+			name:         "zero amount with empty submitted value",
+			identifier:   "amount_zero",
+			value:        "",
+			want:         "Amount must not be zero.",
+			rejectsValue: true,
+		},
+		{
+			name:         "zero amount with thirty three rune submitted value",
+			identifier:   "amount_zero",
+			value:        strings.Repeat("a", 33),
+			want:         "Amount must not be zero.",
+			rejectsValue: true,
+		},
+		{
+			name:         "zero amount with newline submitted value",
+			identifier:   "amount_zero",
+			value:        "0.00\nnext",
+			want:         "Amount must not be zero.",
+			rejectsValue: true,
+		},
+		{
+			name:         "malformed amount with empty submitted value",
+			identifier:   "amount_malformed",
+			value:        "",
+			want:         "Amount is malformed.",
+			rejectsValue: true,
+		},
+		{
+			name:         "malformed amount with thirty three rune submitted value",
+			identifier:   "amount_malformed",
+			value:        strings.Repeat("a", 33),
+			want:         "Amount is malformed.",
+			rejectsValue: true,
+		},
+		{
+			name:         "malformed amount with newline submitted value",
+			identifier:   "amount_malformed",
+			value:        "12.3.4\nnext",
+			want:         "Amount is malformed.",
+			rejectsValue: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := messageFor(tt.identifier, messageContext{value: tt.value})
+			if got != tt.want {
+				t.Errorf("messageFor(%q, value %q) = %q, want %q", tt.identifier, tt.value, got, tt.want)
+			}
+			if tt.rejectsValue && tt.value != "" && strings.Contains(got, tt.value) {
+				t.Errorf("messageFor(%q, value %q) included rejected value in %q", tt.identifier, tt.value, got)
+			}
+		})
+	}
+}
+
 func TestFreeTextCarriedValue(t *testing.T) {
 	tests := []struct {
 		name  string
