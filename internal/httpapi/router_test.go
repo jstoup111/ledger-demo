@@ -240,6 +240,105 @@ func TestRouterRendersAccountPageMarkup(t *testing.T) {
 	})
 }
 
+func TestRouterRendersPageErrorStates(t *testing.T) {
+	store := routerTestStore{
+		accounts: []ledger.Account{
+			{ID: "acct-1", Name: "Checking"},
+			{ID: "acct-2", Name: "Savings"},
+		},
+		transactions: map[string][]ledger.Transaction{
+			"acct-1": {{ID: "txn-0001", AccountID: "acct-1", Amount: 10000, Description: "Opening balance"}},
+		},
+	}
+	router, err := NewRouter(&store)
+	if err != nil {
+		t.Fatalf("NewRouter() error = %v, want nil", err)
+	}
+
+	t.Run("known error code renders its matching message inside the panel above the form", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/?account=acct-1&error=description_empty", nil))
+		body := rec.Body.String()
+
+		errorPosition, panel := pageErrorPanel(t, body)
+		if !strings.Contains(panel, "Description must not be empty.") {
+			t.Errorf("error panel = %q, want matching description error message; body = %s", panel, body)
+		}
+		formPosition := strings.Index(body, "<form")
+		if formPosition < 0 || errorPosition >= formPosition {
+			t.Errorf("error panel position = %d, form position = %d, want panel before form; body = %s", errorPosition, formPosition, body)
+		}
+	})
+
+	t.Run("unknown error codes render the same non-empty generic panel without echoing the code", func(t *testing.T) {
+		const firstUnknownCode = "not_a_real_code"
+		const secondUnknownCode = "another_unknown_code"
+
+		panels := make([]string, 0, 2)
+		for _, code := range []string{firstUnknownCode, secondUnknownCode} {
+			rec := httptest.NewRecorder()
+			router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/?account=acct-1&error="+code, nil))
+			body := rec.Body.String()
+			_, panel := pageErrorPanel(t, body)
+			if strings.TrimSpace(panel) == "" {
+				t.Errorf("error=%q rendered an empty generic error panel; body = %s", code, body)
+			}
+			if strings.Contains(body, code) {
+				t.Errorf("error=%q was echoed in the page; body = %s", code, body)
+			}
+			panels = append(panels, panel)
+		}
+		if panels[0] != panels[1] {
+			t.Errorf("unknown error panels = %q and %q, want one static generic panel", panels[0], panels[1])
+		}
+	})
+
+	t.Run("script-like error code is escaped", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/?account=acct-1&error=%3Cscript%3Ealert%281%29%3C%2Fscript%3E", nil))
+		body := rec.Body.String()
+
+		if strings.Contains(strings.ToLower(body), "<script") {
+			t.Errorf("script-like error code must not render a raw script tag; body = %s", body)
+		}
+	})
+
+	t.Run("unknown account shows only selector and not-found message", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/?account=acct-nope", nil))
+		body := rec.Body.String()
+
+		for _, link := range []string{`href="/?account=acct-1"`, `href="/?account=acct-2"`} {
+			if !strings.Contains(body, link) {
+				t.Errorf("unknown account page does not contain account link %q; body = %s", link, body)
+			}
+		}
+		if !strings.Contains(body, "Account not found.") || strings.Contains(body, `class="balance"`) || strings.Contains(body, "<form") || strings.Contains(body, `aria-label="Transactions"`) {
+			t.Errorf("unknown account page must show the selector and not-found message only; body = %s", body)
+		}
+	})
+}
+
+func pageErrorPanel(t *testing.T, body string) (int, string) {
+	t.Helper()
+
+	classPosition := strings.Index(body, `class="error"`)
+	if classPosition < 0 {
+		t.Fatalf("page does not contain an error-class element; body = %s", body)
+	}
+	elementPosition := strings.LastIndex(body[:classPosition], "<")
+	openingTagEnd := strings.Index(body[classPosition:], ">")
+	if elementPosition < 0 || openingTagEnd < 0 {
+		t.Fatalf("error-class element has malformed markup; body = %s", body)
+	}
+	contentStart := classPosition + openingTagEnd + 1
+	closingTagOffset := strings.Index(body[contentStart:], "</")
+	if closingTagOffset < 0 {
+		t.Fatalf("error-class element is not closed; body = %s", body)
+	}
+	return elementPosition, body[contentStart : contentStart+closingTagOffset]
+}
+
 func TestRouterPostsTransactionsForJSONAndFormRequests(t *testing.T) {
 	store := &routerTestStore{
 		accounts: []ledger.Account{{ID: "acct-1", Name: "Checking"}, {ID: "acct?2", Name: "Escaped"}},

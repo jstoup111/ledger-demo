@@ -13,7 +13,14 @@
       {{range .Accounts}}<a href="{{.Link}}">{{.Name}}</a>{{end}}
     </nav>
 
+    {{if .AccountNotFound}}
+    <p class="error">{{.ErrorMessage}}</p>
+    {{else}}
     <p class="balance">{{.Balance}}</p>
+
+    {{if .ErrorMessage}}
+    <p class="error">{{.ErrorMessage}}</p>
+    {{end}}
 
     <form method="post" action="{{.FormAction}}">
       <label>Amount <input name="amount" required></label>
@@ -33,6 +40,7 @@
       <p>No transactions.</p>
       {{end}}
     </section>
+    {{end}}
   </main>
 </body>
 </html>

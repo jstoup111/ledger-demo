@@ -55,10 +55,12 @@ type pageTransaction struct {
 }
 
 type pageData struct {
-	Accounts     []pageAccount
-	Balance      string
-	FormAction   string
-	Transactions []pageTransaction
+	Accounts        []pageAccount
+	Balance         string
+	ErrorMessage    string
+	AccountNotFound bool
+	FormAction      string
+	Transactions    []pageTransaction
 }
 
 func handlePage(page *template.Template, store ledger.Store) http.HandlerFunc {
@@ -78,13 +80,32 @@ func handlePage(page *template.Template, store ledger.Store) http.HandlerFunc {
 			return
 		}
 
+		data := pageData{}
+		for _, account := range accounts {
+			data.Accounts = append(data.Accounts, pageAccount{
+				Name: account.Name,
+				Link: "/?account=" + url.QueryEscape(account.ID),
+			})
+		}
+
 		selected := accounts[0]
 		if requested := r.URL.Query().Get("account"); requested != "" {
+			found := false
 			for _, account := range accounts {
 				if account.ID == requested {
 					selected = account
+					found = true
 					break
 				}
+			}
+			if !found {
+				data.AccountNotFound = true
+				data.ErrorMessage = "Account not found."
+				w.Header().Set("Content-Type", "text/html; charset=utf-8")
+				if err := page.Execute(w, data); err != nil {
+					http.Error(w, "template render failed", http.StatusInternalServerError)
+				}
+				return
 			}
 		}
 
@@ -99,17 +120,10 @@ func handlePage(page *template.Template, store ledger.Store) http.HandlerFunc {
 			return
 		}
 
-		data := pageData{
-			Balance:      formatDollars(balance),
-			FormAction:   "/api/accounts/" + url.PathEscape(selected.ID) + "/transactions",
-			Transactions: make([]pageTransaction, 0, len(transactions)),
-		}
-		for _, account := range accounts {
-			data.Accounts = append(data.Accounts, pageAccount{
-				Name: account.Name,
-				Link: "/?account=" + url.QueryEscape(account.ID),
-			})
-		}
+		data.Balance = formatDollars(balance)
+		data.ErrorMessage = pageErrorMessage(r.URL.Query().Get("error"))
+		data.FormAction = "/api/accounts/" + url.PathEscape(selected.ID) + "/transactions"
+		data.Transactions = make([]pageTransaction, 0, len(transactions))
 		for _, transaction := range transactions {
 			data.Transactions = append(data.Transactions, pageTransaction{
 				Amount:      formatDollars(transaction.Amount),
@@ -122,6 +136,25 @@ func handlePage(page *template.Template, store ledger.Store) http.HandlerFunc {
 			http.Error(w, "template render failed", http.StatusInternalServerError)
 		}
 	}
+}
+
+func pageErrorMessage(code string) string {
+	if code == "" {
+		return ""
+	}
+
+	messages := map[string]string{
+		"account_not_found":         "Account not found.",
+		"amount_zero":               "Amount must not be zero.",
+		"description_empty":         "Description must not be empty.",
+		"description_too_long":      "Description is too long.",
+		"amount_malformed":          "Amount is malformed.",
+		"balance_would_go_negative": "Balance would go negative.",
+	}
+	if message, ok := messages[code]; ok {
+		return message
+	}
+	return "Unable to post transaction."
 }
 
 func formatDollars(cents int64) string {
