@@ -474,7 +474,7 @@ func TestRouterPostsTransactionsForJSONAndFormRequests(t *testing.T) {
 func TestRouterNegotiatesCodedPostErrorsByContentType(t *testing.T) {
 	store := &routerTestStore{
 		accounts:     []ledger.Account{{ID: "acct-1", Name: "Checking"}},
-		transactions: map[string][]ledger.Transaction{"acct-1": {{Amount: 10000}}},
+		transactions: map[string][]ledger.Transaction{"acct-1": {{Amount: 20000}}},
 	}
 	router, err := NewRouter(store, routerClock)
 	if err != nil {
@@ -551,6 +551,8 @@ func TestRouterRejectsMalformedJSONAmountsWithoutAppending(t *testing.T) {
 		{name: "invalid JSON", body: `{"amount":"-42.50"`},
 		{name: "omitted amount", body: `{"description":"Coffee"}`},
 		{name: "numeric amount", body: `{"amount":-42.50,"description":"Coffee"}`},
+		{name: "trailing non-JSON content", body: `{"amount":"-42.50","description":"Coffee"} trailing`},
+		{name: "second JSON value", body: `{"amount":"-42.50","description":"Coffee"} {"amount":"1.00"}`},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			countBefore, err := store.CountTransactions()
@@ -560,7 +562,7 @@ func TestRouterRejectsMalformedJSONAmountsWithoutAppending(t *testing.T) {
 
 			rec := postTransaction(router, "/api/accounts/acct-1/transactions", "application/json", tt.body)
 			if got, want := rec.Code, http.StatusBadRequest; got != want {
-				t.Fatalf("status = %d, want %d; body = %s", got, want, rec.Body.String())
+				t.Errorf("status = %d, want %d; body = %s", got, want, rec.Body.String())
 			}
 			var response errorEnvelope
 			if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {

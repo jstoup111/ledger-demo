@@ -3,6 +3,7 @@ package httpapi
 
 import (
 	"encoding/json"
+	"fmt"
 	"html/template"
 	"io"
 	"mime"
@@ -351,7 +352,16 @@ func postRequest(r *http.Request) (transactionPostRequest, bool, error) {
 			Amount      string `json:"amount"`
 			Description string `json:"description"`
 		}
-		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		decoder := json.NewDecoder(r.Body)
+		if err := decoder.Decode(&request); err != nil {
+			return transactionPostRequest{}, true, err
+		}
+		var extra json.RawMessage
+		switch err := decoder.Decode(&extra); err {
+		case io.EOF:
+		case nil:
+			return transactionPostRequest{}, true, fmt.Errorf("request body contains multiple JSON values")
+		default:
 			return transactionPostRequest{}, true, err
 		}
 		return transactionPostRequest{amount: request.Amount, description: request.Description}, true, nil
