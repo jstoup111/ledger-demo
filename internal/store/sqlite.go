@@ -2,7 +2,10 @@ package store
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
+
+	"github.com/jstoup111/ledger-demo/internal/ledger"
 
 	// The pure-Go SQLite driver (no CGO), registered with database/sql under
 	// the name "sqlite".
@@ -48,4 +51,47 @@ func Open(dsn string) (*SQLite, error) {
 	}
 
 	return &SQLite{db: db}, nil
+}
+
+// InsertAccount stores an account.
+func (s *SQLite) InsertAccount(account ledger.Account) error {
+	if _, err := s.db.Exec(`INSERT INTO accounts (id, name) VALUES (?, ?)`, account.ID, account.Name); err != nil {
+		return fmt.Errorf("insert account %q: %w", account.ID, err)
+	}
+	return nil
+}
+
+// Accounts returns all accounts ordered by ID.
+func (s *SQLite) Accounts() ([]ledger.Account, error) {
+	rows, err := s.db.Query(`SELECT id, name FROM accounts ORDER BY id ASC`)
+	if err != nil {
+		return nil, fmt.Errorf("list accounts: %w", err)
+	}
+	defer rows.Close()
+
+	var accounts []ledger.Account
+	for rows.Next() {
+		var account ledger.Account
+		if err := rows.Scan(&account.ID, &account.Name); err != nil {
+			return nil, fmt.Errorf("scan account: %w", err)
+		}
+		accounts = append(accounts, account)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate accounts: %w", err)
+	}
+	return accounts, nil
+}
+
+// Account returns the account identified by id.
+func (s *SQLite) Account(id string) (ledger.Account, error) {
+	var account ledger.Account
+	err := s.db.QueryRow(`SELECT id, name FROM accounts WHERE id = ?`, id).Scan(&account.ID, &account.Name)
+	if errors.Is(err, sql.ErrNoRows) {
+		return ledger.Account{}, fmt.Errorf("account %q: %w", id, ledger.ErrAccountNotFound)
+	}
+	if err != nil {
+		return ledger.Account{}, fmt.Errorf("read account %q: %w", id, err)
+	}
+	return account, nil
 }
