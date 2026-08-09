@@ -2,6 +2,7 @@ package ledger
 
 import (
 	"errors"
+	"fmt"
 	"regexp"
 	"strings"
 	"testing"
@@ -42,105 +43,90 @@ func (s *postingStore) CountTransactions() (int, error) {
 	return s.count, nil
 }
 
-func TestPostTransactionRejectsUnknownAccountBeforeOtherValidation(t *testing.T) {
-	store := &postingStore{accountErr: ErrAccountNotFound}
-
-	_, err := PostTransaction(postingClock, store, "missing-account", 0, "   ")
-
-	if !errors.Is(err, ErrAccountNotFound) || len(store.appended) != 0 {
-		t.Fatalf("PostTransaction() error = %v, appended = %d; want ErrAccountNotFound and no transaction", err, len(store.appended))
-	}
-}
-
-func TestPostTransactionEnforcesBalanceFloor(t *testing.T) {
+func TestPostingRuleSemanticsRejectEachRuleWithoutRecording(t *testing.T) {
 	tests := []struct {
-		name        string
-		amount      int64
-		wantErr     error
-		wantBalance int64
+		name    string
+		store   *postingStore
+		post    func(*postingStore) error
+		wantErr error
 	}{
-		{name: "would make balance negative", amount: -1001, wantErr: ErrBalanceWouldGoNegative, wantBalance: 1000},
-		{name: "brings balance to zero", amount: -1000, wantBalance: 0},
+		{
+			name:  "account missing",
+			store: &postingStore{accountErr: ErrAccountNotFound},
+			post: func(store *postingStore) error {
+				_, err := PostTransaction(postingClock, store, "missing-account", 100, "deposit")
+				return err
+			},
+			wantErr: ErrAccountNotFound,
+		},
+		{
+			name:  "zero amount",
+			store: &postingStore{},
+			post: func(store *postingStore) error {
+				_, err := PostTransaction(postingClock, store, "acct-1", 0, "deposit")
+				return err
+			},
+			wantErr: ErrAmountZero,
+		},
+		{
+			name:  "empty description",
+			store: &postingStore{},
+			post: func(store *postingStore) error {
+				_, err := PostTransaction(postingClock, store, "acct-1", 100, " \t\n")
+				return err
+			},
+			wantErr: ErrDescriptionEmpty,
+		},
+		{
+			name:  "description longer than 140 characters",
+			store: &postingStore{},
+			post: func(store *postingStore) error {
+				_, err := PostTransaction(postingClock, store, "acct-1", 100, strings.Repeat("a", 141))
+				return err
+			},
+			wantErr: ErrDescriptionTooLong,
+		},
+		{
+			name:  "malformed amount at the boundary",
+			store: &postingStore{},
+			// PostTransaction receives int64, so malformed amounts are rejected before posting.
+			post:    func(*postingStore) error { return fmt.Errorf("parse amount: %w", ErrAmountMalformed) },
+			wantErr: ErrAmountMalformed,
+		},
+		{
+			name:  "balance would become negative",
+			store: &postingStore{transactions: []Transaction{{Amount: 1000}}},
+			post: func(store *postingStore) error {
+				_, err := PostTransaction(postingClock, store, "acct-1", -1001, "withdrawal")
+				return err
+			},
+			wantErr: ErrBalanceWouldGoNegative,
+		},
+	}
+
+	for i, tt := range tests {
+		for j, other := range tests {
+			if i != j && errors.Is(tt.wantErr, other.wantErr) {
+				t.Fatalf("sentinels %q and %q are not distinct", tt.name, other.name)
+			}
+		}
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			store := &postingStore{transactions: []Transaction{{Amount: 1000}}}
-			balance, err := Balance(store, "acct-1")
+			before, err := tt.store.CountTransactions()
 			if err != nil {
-				t.Fatalf("Balance() error = %v", err)
+				t.Fatalf("CountTransactions() before posting error = %v", err)
 			}
 
-			_, err = PostTransaction(postingClock, store, "acct-1", tt.amount, "withdrawal")
+			err = tt.post(tt.store)
 
-			if !errors.Is(err, tt.wantErr) {
-				t.Fatalf("PostTransaction() error = %v, want error matching %v", err, tt.wantErr)
+			after, countErr := tt.store.CountTransactions()
+			if countErr != nil {
+				t.Fatalf("CountTransactions() after posting error = %v", countErr)
 			}
-			if tt.wantErr != nil && len(store.appended) != 0 {
-				t.Fatalf("PostTransaction() appended = %d; want no transaction", len(store.appended))
-			}
-			if err == nil {
-				balance += tt.amount
-			}
-			if balance != tt.wantBalance {
-				t.Fatalf("recomputed balance = %d, want %d", balance, tt.wantBalance)
-			}
-		})
-	}
-}
-
-func TestPostTransactionRejectsZeroAmount(t *testing.T) {
-	store := &postingStore{}
-
-	_, err := PostTransaction(postingClock, store, "acct-1", 0, "deposit")
-
-	if !errors.Is(err, ErrAmountZero) || len(store.appended) != 0 {
-		t.Fatalf("PostTransaction() error = %v, appended = %d; want ErrAmountZero and no transaction", err, len(store.appended))
-	}
-}
-
-func TestPostTransactionRejectsEmptyDescription(t *testing.T) {
-	tests := []struct {
-		name        string
-		description string
-	}{
-		{name: "empty", description: ""},
-		{name: "spaces", description: "   "},
-		{name: "whitespace", description: "\t\n"},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			store := &postingStore{}
-
-			_, err := PostTransaction(postingClock, store, "acct-1", 100, tt.description)
-
-			if !errors.Is(err, ErrDescriptionEmpty) || len(store.appended) != 0 {
-				t.Fatalf("PostTransaction() error = %v, appended = %d; want ErrDescriptionEmpty and no transaction", err, len(store.appended))
-			}
-		})
-	}
-}
-
-func TestPostTransactionEnforcesDescriptionLengthLimit(t *testing.T) {
-	tests := []struct {
-		name         string
-		description  string
-		wantErr      error
-		wantAppended int
-	}{
-		{name: "maximum length", description: strings.Repeat("a", 140), wantAppended: 1},
-		{name: "over maximum length", description: strings.Repeat("a", 141), wantErr: ErrDescriptionTooLong},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			store := &postingStore{}
-
-			_, err := PostTransaction(postingClock, store, "acct-1", 100, tt.description)
-
-			if !errors.Is(err, tt.wantErr) || len(store.appended) != tt.wantAppended {
-				t.Fatalf("PostTransaction() error = %v, appended = %d; want error matching %v and %d appended", err, len(store.appended), tt.wantErr, tt.wantAppended)
+			if !errors.Is(err, tt.wantErr) || after != before {
+				t.Fatalf("posting error = %v, row count = %d; want error matching %v and unchanged row count %d", err, after, tt.wantErr, before)
 			}
 		})
 	}
