@@ -1,6 +1,7 @@
 package web
 
 import (
+	"os"
 	"regexp"
 	"strings"
 	"testing"
@@ -29,5 +30,32 @@ func TestEmbeddedStylesheetActivatesBalanceErrorAndTableRules(t *testing.T) {
 		if strings.Contains(rawCSS, forbidden) {
 			t.Errorf("stylesheet must not contain %q", forbidden)
 		}
+	}
+}
+
+func TestOfflineAssetsAndDependencies(t *testing.T) {
+	stylesheet, err := FS.ReadFile("style.css")
+	if err != nil {
+		t.Fatalf("read embedded style.css: %v", err)
+	}
+
+	activeCSS := strings.ToLower(string(stylesheet))
+	for _, forbidden := range []string{"@import", "@font-face"} {
+		if strings.Contains(activeCSS, forbidden) {
+			t.Errorf("stylesheet must not contain %q", forbidden)
+		}
+	}
+
+	goMod, err := os.ReadFile("../go.mod")
+	if err != nil {
+		t.Fatalf("read go.mod: %v", err)
+	}
+
+	directRequirements := regexp.MustCompile(`(?m)^require\s+([^\s]+)\s+[^\s]+\s*$`).FindAllStringSubmatch(string(goMod), -1)
+	if got, want := len(directRequirements), 1; got != want {
+		t.Fatalf("direct non-standard-library requirements = %d, want %d", got, want)
+	}
+	if got, want := directRequirements[0][1], "modernc.org/sqlite"; got != want {
+		t.Errorf("direct non-standard-library requirement = %q, want %q", got, want)
 	}
 }

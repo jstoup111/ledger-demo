@@ -120,6 +120,23 @@ func TestRouter(t *testing.T) {
 	}
 }
 
+func TestRouterRendersPageWithoutOutboundReferences(t *testing.T) {
+	router, err := NewRouter(&routerTestStore{}, routerClock)
+	if err != nil {
+		t.Fatalf("NewRouter() error = %v, want nil", err)
+	}
+
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/", nil))
+	body := strings.ToLower(rec.Body.String())
+
+	for _, forbidden := range []string{"http://", "https://", "<script"} {
+		if strings.Contains(body, forbidden) {
+			t.Errorf("rendered page must not contain %q; body = %s", forbidden, body)
+		}
+	}
+}
+
 func TestRouterRendersAccountPageMarkup(t *testing.T) {
 	createdEarlier := time.Date(2026, time.August, 8, 14, 30, 0, 0, time.UTC)
 	store := routerTestStore{
