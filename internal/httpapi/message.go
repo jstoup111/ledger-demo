@@ -30,6 +30,9 @@ func messageFor(identifier string, context messageContext) string {
 	case "description_empty":
 		return "Description must not be empty."
 	case "description_too_long":
+		if value, ok := characterCountCarriedValue(context.value); ok {
+			return "Description is too long. Submitted: " + value + " characters; the limit is 140."
+		}
 		return "Description is too long."
 	case "amount_malformed":
 		if value, ok := freeTextCarriedValue(context.value); ok {

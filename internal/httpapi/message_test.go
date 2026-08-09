@@ -147,6 +147,40 @@ func TestMessageForNamesSubmittedAmountForAmountRejections(t *testing.T) {
 	}
 }
 
+func TestMessageForNamesSubmittedCharacterCountForDescriptionTooLong(t *testing.T) {
+	context := messageContext{value: "187"}
+	want := "Description is too long. Submitted: 187 characters; the limit is 140."
+
+	if got := messageFor("description_too_long", context); got != want {
+		t.Errorf("messageFor(description_too_long, %+v) = %q, want %q", context, got, want)
+	}
+}
+
+func TestMessageForOmitsRejectedDescriptionCharacterCounts(t *testing.T) {
+	tests := []struct {
+		name  string
+		value string
+	}{
+		{name: "letters", value: "abc"},
+		{name: "below limit", value: "3"},
+		{name: "at limit", value: "140"},
+		{name: "empty", value: ""},
+		{name: "seven digits", value: "1000000"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := messageFor("description_too_long", messageContext{value: tt.value})
+			if got != "Description is too long." {
+				t.Errorf("messageFor(description_too_long, value %q) = %q, want plain sentence", tt.value, got)
+			}
+			if tt.value != "" && strings.Contains(got, tt.value) {
+				t.Errorf("messageFor(description_too_long, value %q) included rejected value in %q", tt.value, got)
+			}
+		})
+	}
+}
+
 func TestFreeTextCarriedValue(t *testing.T) {
 	tests := []struct {
 		name  string
