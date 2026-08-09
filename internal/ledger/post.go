@@ -26,7 +26,7 @@ func PostTransaction(clock clock.Clock, store Store, accountID string, amount in
 	if err != nil {
 		return Transaction{}, fmt.Errorf("posting transaction: %w", err)
 	}
-	if balance+amount < 0 {
+	if amount < 0 && amount < -balance {
 		return Transaction{}, fmt.Errorf("posting transaction: %w", ErrBalanceWouldGoNegative)
 	}
 

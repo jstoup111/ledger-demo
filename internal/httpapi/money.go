@@ -48,6 +48,9 @@ func parseAmount(amount string) (int64, error) {
 		return 0, ledger.ErrAmountMalformed
 	}
 	magnitude += cents
+	if magnitude == 0 {
+		return 0, ledger.ErrAmountZero
+	}
 
 	if negative {
 		if magnitude > uint64(math.MaxInt64)+1 {

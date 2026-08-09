@@ -2,7 +2,7 @@ package ledger
 
 import (
 	"errors"
-	"fmt"
+	"math"
 	"regexp"
 	"strings"
 	"testing"
@@ -87,13 +87,6 @@ func TestPostingRuleSemanticsRejectEachRuleWithoutRecording(t *testing.T) {
 			wantErr: ErrDescriptionTooLong,
 		},
 		{
-			name:  "malformed amount at the boundary",
-			store: &postingStore{},
-			// PostTransaction receives int64, so malformed amounts are rejected before posting.
-			post:    func(*postingStore) error { return fmt.Errorf("parse amount: %w", ErrAmountMalformed) },
-			wantErr: ErrAmountMalformed,
-		},
-		{
 			name:  "balance would become negative",
 			store: &postingStore{transactions: []Transaction{{Amount: 1000}}},
 			post: func(store *postingStore) error {
@@ -129,6 +122,16 @@ func TestPostingRuleSemanticsRejectEachRuleWithoutRecording(t *testing.T) {
 				t.Fatalf("posting error = %v, row count = %d; want error matching %v and unchanged row count %d", err, after, tt.wantErr, before)
 			}
 		})
+	}
+}
+
+func TestPostTransactionAcceptsMaximumCreditWithoutBalanceFloorError(t *testing.T) {
+	store := &postingStore{transactions: []Transaction{{Amount: 1}}}
+
+	transaction, err := PostTransaction(postingClock, store, "acct-1", math.MaxInt64, "maximum credit")
+
+	if errors.Is(err, ErrBalanceWouldGoNegative) || err != nil || transaction.Amount != math.MaxInt64 || len(store.appended) != 1 {
+		t.Fatalf("PostTransaction() = %#v, %v; appended = %#v; want maximum credit recorded without a balance-floor error", transaction, err, store.appended)
 	}
 }
 
