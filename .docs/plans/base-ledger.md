@@ -98,7 +98,7 @@ inward, per architecture-review Wiring Surface)
 5. Commit: "ledger: add Account and Transaction types"
 
 **Files:** `internal/ledger/ledger.go`, `internal/ledger/ledger_test.go`, `internal/ledger/doc.go`
-**Wired-into:** `internal/store/sqlite.go#scanTransaction`, `internal/httpapi/router.go#NewRouter`
+**Wired-into:** `internal/store/sqlite.go#InsertAccount`, `internal/store/sqlite.go#Append`
 **Dependencies:** none
 
 ### Task 3: Six distinct sentinel errors
