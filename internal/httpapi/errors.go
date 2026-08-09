@@ -35,6 +35,8 @@ func codeFor(err error) codedError {
 		return codedError{http.StatusBadRequest, "amount_malformed", "Amount is malformed."}
 	case errors.Is(err, ledger.ErrBalanceWouldGoNegative):
 		return codedError{http.StatusBadRequest, "balance_would_go_negative", "Balance would go negative."}
+	case errors.Is(err, ledger.ErrBalanceOverflow):
+		return codedError{http.StatusBadRequest, "balance_overflow", "Balance would overflow."}
 	default:
 		return codedError{}
 	}
@@ -42,6 +44,9 @@ func codeFor(err error) codedError {
 
 func writeJSONError(w http.ResponseWriter, err error) {
 	coded := codeFor(err)
+	if coded.status == 0 {
+		coded = codedError{http.StatusInternalServerError, "internal_error", "Unable to post transaction."}
+	}
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(coded.status)
 

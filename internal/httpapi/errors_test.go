@@ -1,6 +1,8 @@
 package httpapi
 
 import (
+	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -45,6 +47,11 @@ func TestCodeForMapsWrappedDomainErrors(t *testing.T) {
 			err:  fmt.Errorf("post transaction: %w", ledger.ErrBalanceWouldGoNegative),
 			want: codedError{status: http.StatusBadRequest, code: "balance_would_go_negative", message: "Balance would go negative."},
 		},
+		{
+			name: "balance overflow",
+			err:  fmt.Errorf("post transaction: %w", ledger.ErrBalanceOverflow),
+			want: codedError{status: http.StatusBadRequest, code: "balance_overflow", message: "Balance would overflow."},
+		},
 	}
 
 	for _, tt := range tests {
@@ -70,5 +77,32 @@ func TestWriteJSONErrorEncodesExactErrorEnvelope(t *testing.T) {
 	}
 	if got, want := recorder.Body.String(), `{"error":{"code":"amount_zero","message":"Amount must not be zero."}}`; got != want {
 		t.Fatalf("body = %q, want %q", got, want)
+	}
+}
+
+func TestWriteJSONErrorUsesStableGenericEnvelopeForUnmappedErrors(t *testing.T) {
+	first := httptest.NewRecorder()
+	second := httptest.NewRecorder()
+
+	writeJSONError(first, errors.New("database unavailable"))
+	writeJSONError(second, errors.New("different internal failure"))
+
+	for _, recorder := range []*httptest.ResponseRecorder{first, second} {
+		if got, want := recorder.Code, http.StatusInternalServerError; got != want {
+			t.Errorf("status = %d, want %d", got, want)
+		}
+		if got, want := recorder.Header().Get("Content-Type"), "application/json; charset=utf-8"; got != want {
+			t.Errorf("Content-Type = %q, want %q", got, want)
+		}
+		var response errorEnvelope
+		if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+			t.Errorf("response is not JSON: %v; body = %s", err, recorder.Body.String())
+		}
+		if response.Error.Code == "" || response.Error.Message == "" {
+			t.Errorf("generic response = %#v, want non-empty stable code and message", response)
+		}
+	}
+	if got, want := first.Body.String(), second.Body.String(); got != want {
+		t.Errorf("generic response bodies differ: %q and %q", got, want)
 	}
 }

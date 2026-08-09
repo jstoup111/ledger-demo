@@ -161,6 +161,7 @@ func pageErrorMessage(code string) string {
 		"description_too_long":      "Description is too long.",
 		"amount_malformed":          "Amount is malformed.",
 		"balance_would_go_negative": "Balance would go negative.",
+		"balance_overflow":          "Balance would overflow.",
 	}
 	if message, ok := messages[code]; ok {
 		return message
@@ -350,6 +351,7 @@ func writePostError(w http.ResponseWriter, r *http.Request, jsonResponse bool, a
 		return
 	}
 
+	log.Printf("post transaction for account %q: %v", accountID, err)
 	http.Redirect(w, r, "/?account="+url.QueryEscape(accountID)+"&error="+url.QueryEscape(codeFor(err).code), http.StatusSeeOther)
 }
 

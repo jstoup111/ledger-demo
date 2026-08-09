@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"log"
+	"math"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -643,6 +644,122 @@ func TestRouterNegotiatesCodedPostErrorsByContentType(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestRouterMapsBalanceOverflowAtBothPostingBoundaries(t *testing.T) {
+	newRouter := func(t *testing.T) (*routerTestStore, http.Handler) {
+		t.Helper()
+		store := &routerTestStore{
+			accounts:     []ledger.Account{{ID: "acct-1", Name: "Checking"}},
+			transactions: map[string][]ledger.Transaction{},
+		}
+		router, err := NewRouter(store, routerClock)
+		if err != nil {
+			t.Fatalf("NewRouter() error = %v, want nil", err)
+		}
+		return store, router
+	}
+
+	t.Run("form redirects, logs, and renders the overflow rejection without changing the maximum balance", func(t *testing.T) {
+		store, router := newRouter(t)
+		accepted := postTransaction(router, "/api/accounts/acct-1/transactions", "application/x-www-form-urlencoded", "amount=92233720368547758.07&description=Maximum+deposit")
+		if got, want := accepted.Code, http.StatusSeeOther; got != want {
+			t.Fatalf("accepted form status = %d, want %d; body = %s", got, want, accepted.Body.String())
+		}
+		countBefore, err := store.CountTransactions()
+		if err != nil {
+			t.Fatalf("CountTransactions() error = %v", err)
+		}
+		balanceBefore, err := ledger.Balance(store, "acct-1")
+		if err != nil {
+			t.Fatalf("Balance() error = %v", err)
+		}
+		if got, want := balanceBefore, int64(math.MaxInt64); got != want {
+			t.Fatalf("balance after accepted maximum deposit = %d, want %d", got, want)
+		}
+
+		var logs bytes.Buffer
+		originalOutput := log.Writer()
+		log.SetOutput(&logs)
+		t.Cleanup(func() { log.SetOutput(originalOutput) })
+
+		rejected := postTransaction(router, "/api/accounts/acct-1/transactions", "application/x-www-form-urlencoded", "amount=0.01&description=One+cent")
+		if got, want := rejected.Code, http.StatusSeeOther; got != want {
+			t.Fatalf("rejected form status = %d, want %d; body = %s", got, want, rejected.Body.String())
+		}
+		if got, want := rejected.Header().Get("Location"), "/?account=acct-1&error=balance_overflow"; got != want {
+			t.Errorf("rejected form Location = %q, want %q", got, want)
+		}
+		if output := logs.String(); !strings.Contains(output, ledger.ErrBalanceOverflow.Error()) {
+			t.Errorf("log output = %q, want overflow rejection", output)
+		}
+		page := httptest.NewRecorder()
+		router.ServeHTTP(page, httptest.NewRequest(http.MethodGet, rejected.Header().Get("Location"), nil))
+		errorPosition, panel := pageErrorPanel(t, page.Body.String())
+		if !strings.Contains(panel, "Balance would overflow.") {
+			t.Errorf("error panel = %q, want overflow message", panel)
+		}
+		formPosition := strings.Index(page.Body.String(), "<form")
+		if formPosition < 0 || errorPosition >= formPosition {
+			t.Errorf("error position = %d, form position = %d; want panel above form", errorPosition, formPosition)
+		}
+		countAfter, err := store.CountTransactions()
+		if err != nil {
+			t.Fatalf("CountTransactions() error = %v", err)
+		}
+		balanceAfter, err := ledger.Balance(store, "acct-1")
+		if err != nil {
+			t.Fatalf("Balance() error = %v", err)
+		}
+		if countAfter != countBefore || balanceAfter != balanceBefore {
+			t.Errorf("rejected form changed count/balance to %d/%d, want %d/%d", countAfter, balanceAfter, countBefore, balanceBefore)
+		}
+	})
+
+	t.Run("JSON returns the typed overflow envelope without changing the maximum balance", func(t *testing.T) {
+		store, router := newRouter(t)
+		accepted := postTransaction(router, "/api/accounts/acct-1/transactions", "application/json", `{"amount":"92233720368547758.07","description":"Maximum deposit"}`)
+		if got, want := accepted.Code, http.StatusCreated; got != want {
+			t.Fatalf("accepted JSON status = %d, want %d; body = %s", got, want, accepted.Body.String())
+		}
+		countBefore, err := store.CountTransactions()
+		if err != nil {
+			t.Fatalf("CountTransactions() error = %v", err)
+		}
+		balanceBefore, err := ledger.Balance(store, "acct-1")
+		if err != nil {
+			t.Fatalf("Balance() error = %v", err)
+		}
+
+		rejected := postTransaction(router, "/api/accounts/acct-1/transactions", "application/json", `{"amount":"0.01","description":"One cent"}`)
+		if got, want := rejected.Code, http.StatusBadRequest; got != want {
+			t.Errorf("rejected JSON status = %d, want %d; body = %s", got, want, rejected.Body.String())
+		}
+		if got, want := rejected.Header().Get("Content-Type"), "application/json; charset=utf-8"; got != want {
+			t.Errorf("Content-Type = %q, want %q", got, want)
+		}
+		var response errorEnvelope
+		if err := json.Unmarshal(rejected.Body.Bytes(), &response); err != nil {
+			t.Fatalf("response is not JSON: %v; body = %s", err, rejected.Body.String())
+		}
+		if got, want := response.Error.Code, "balance_overflow"; got != want {
+			t.Errorf("error code = %q, want %q", got, want)
+		}
+		if got, want := response.Error.Message, "Balance would overflow."; got != want {
+			t.Errorf("error message = %q, want %q", got, want)
+		}
+		countAfter, err := store.CountTransactions()
+		if err != nil {
+			t.Fatalf("CountTransactions() error = %v", err)
+		}
+		balanceAfter, err := ledger.Balance(store, "acct-1")
+		if err != nil {
+			t.Fatalf("Balance() error = %v", err)
+		}
+		if countAfter != countBefore || balanceAfter != balanceBefore {
+			t.Errorf("rejected JSON changed count/balance to %d/%d, want %d/%d", countAfter, balanceAfter, countBefore, balanceBefore)
+		}
+	})
 }
 
 func TestRouterRejectsMalformedJSONAmountsWithoutAppending(t *testing.T) {
