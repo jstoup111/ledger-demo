@@ -66,6 +66,40 @@ func TestLoadSeedDataIsDeterministic(t *testing.T) {
 			latest = transaction.CreatedAt
 		}
 	}
+	acct1Listing := perAccount["acct-1"]
+	acct1TimeCounts := make(map[time.Time]int, len(acct1Listing))
+	for _, transaction := range acct1Listing {
+		acct1TimeCounts[transaction.CreatedAt]++
+	}
+	sharedTimeCount := 0
+	for createdAt, count := range acct1TimeCounts {
+		if count >= 3 {
+			t.Fatalf("acct-1 created-at %v occurs %d times, want fewer than 3", createdAt, count)
+		}
+		if count == 2 {
+			sharedTimeCount++
+		}
+	}
+	if sharedTimeCount != 1 {
+		t.Fatalf("acct-1 shared created-at values = %d, want 1", sharedTimeCount)
+	}
+	equalTimeComparisons := 0
+	for i := 1; i < len(acct1Listing); i++ {
+		previous, current := acct1Listing[i-1], acct1Listing[i]
+		if !previous.CreatedAt.Equal(current.CreatedAt) {
+			continue
+		}
+		equalTimeComparisons++
+		if got, want := []string{previous.ID, current.ID}, []string{"txn-0012", "txn-0011"}; !reflect.DeepEqual(got, want) {
+			t.Fatalf("equal-time adjacent IDs = %v, want %v", got, want)
+		}
+		if previous.ID <= current.ID {
+			t.Fatalf("equal-time IDs = %q then %q, want descending order", previous.ID, current.ID)
+		}
+	}
+	if equalTimeComparisons != 1 {
+		t.Fatalf("equal-time descending-ID comparisons = %d, want 1", equalTimeComparisons)
+	}
 	if !hasAnchor {
 		t.Fatal("no seeded transaction has the anchor created-at time")
 	}

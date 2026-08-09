@@ -56,7 +56,7 @@ var demoSeed = []seedAccount{
 			{amount: -1880, recordedBefore: 10*day + 4*hour, description: "Phone bill"},
 			{amount: -7600, recordedBefore: 6*day + 5*hour, description: "Dinner with friends"},
 			{amount: 10000, recordedBefore: 3*day + 3*hour, description: "Tax refund"},
-			{amount: -4500, recordedBefore: day + 2*hour, description: "Membership renewal"},
+			{amount: -4500, recordedBefore: 0, description: "Membership renewal"},
 			{amount: -5500, recordedBefore: 0, description: "Concert tickets"},
 		},
 	},
