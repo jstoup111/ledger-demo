@@ -172,3 +172,36 @@ func TestPostTransactionRecordsValidTransactionAndAcceptsOneCent(t *testing.T) {
 		t.Fatalf("PostTransaction() for one cent error = %v", err)
 	}
 }
+
+func TestPostTransactionLimitsDescriptionsByUnicodeCharacters(t *testing.T) {
+	tests := []struct {
+		name        string
+		description string
+		wantErr     error
+	}{
+		{
+			name:        "accepts exactly 140 ASCII characters",
+			description: strings.Repeat("a", 140),
+		},
+		{
+			name:        "rejects 141 characters",
+			description: strings.Repeat("a", 141),
+			wantErr:     ErrDescriptionTooLong,
+		},
+		{
+			name:        "accepts exactly 140 multibyte characters",
+			description: strings.Repeat("é", 140),
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			store := &postingStore{}
+			_, err := PostTransaction(postingClock, store, "acct-1", 100, tt.description)
+
+			if !errors.Is(err, tt.wantErr) {
+				t.Fatalf("PostTransaction() error = %v; want error matching %v", err, tt.wantErr)
+			}
+		})
+	}
+}

@@ -3,6 +3,7 @@ package ledger
 import (
 	"fmt"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/jstoup111/ledger-demo/internal/clock"
 )
@@ -18,7 +19,7 @@ func PostTransaction(clock clock.Clock, store Store, accountID string, amount in
 	if strings.TrimSpace(description) == "" {
 		return Transaction{}, fmt.Errorf("posting transaction: %w", ErrDescriptionEmpty)
 	}
-	if len(description) > 140 {
+	if utf8.RuneCountInString(description) > 140 {
 		return Transaction{}, fmt.Errorf("posting transaction: %w", ErrDescriptionTooLong)
 	}
 	balance, err := Balance(store, accountID)
