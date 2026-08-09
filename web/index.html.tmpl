@@ -13,16 +13,18 @@
       {{range .Accounts}}<a href="{{.Link}}">{{.Name}}</a>{{end}}
     </nav>
 
+    {{if .AccountNotFound}}
     {{if .ErrorMessage}}
     <p class="error">{{.ErrorMessage}}</p>
     {{end}}
-
-    {{if .AccountNotFound}}
     <p class="requested-account">Requested account: <code>{{.RequestedAccount}}</code></p>
-    {{else}}
-    <p class="balance">{{.Balance}}</p>
+    {{else if .HasSelectedAccount}}
+    <p class="balance">{{.Balance}} <span class="selected-account">Selected account: {{.SelectedAccount}}</span></p>
 
     {{if .FormAction}}
+    {{if .ErrorMessage}}
+    <p class="error">{{.ErrorMessage}}</p>
+    {{end}}
     <form method="post" action="{{.FormAction}}">
       <label>Amount <input name="amount" required></label>
       <label>Description <input name="description" required></label>
@@ -42,6 +44,8 @@
       <p>No transactions.</p>
       {{end}}
     </section>
+    {{else if .ErrorMessage}}
+    <p class="error">{{.ErrorMessage}}</p>
     {{end}}
   </main>
 </body>

@@ -71,7 +71,7 @@ func TestAcceptanceAccountSelectionAndBalance(t *testing.T) {
 			t.Fatalf("GET /?account=%s status = %d, want 200", selected.ID, res.status)
 		}
 		mustContain(t, res.body, `class="balance"`, "selected account page")
-		mustContain(t, res.body, html.EscapeString(selected.Name), "selected account page")
+		mustContain(t, res.body, `class="selected-account">Selected account: `+html.EscapeString(selected.Name), "selected account identity")
 		mustContain(t, res.body, formatDollars(selected.BalanceCents), "selected account page")
 
 		// FR-1: exactly one account is displayed at a time.
@@ -347,9 +347,10 @@ func TestAcceptancePageFormRoundTrip(t *testing.T) {
 
 		// FR-13: the message sits directly above the form that produced it.
 		panelAt := strings.Index(page.body, `class="error"`)
+		panelEndOffset := strings.Index(page.body[panelAt:], "</p>")
 		formAt := strings.Index(page.body, "<form")
-		if panelAt < 0 || formAt < 0 || panelAt > formAt {
-			t.Errorf("the error panel is not rendered above the form; body:\n%s", page.body)
+		if panelAt < 0 || panelEndOffset < 0 || formAt < 0 || strings.TrimSpace(page.body[panelAt+panelEndOffset+len("</p>"):formAt]) != "" {
+			t.Errorf("the error panel must be immediately before the form; body:\n%s", page.body)
 		}
 	})
 
@@ -551,6 +552,75 @@ func TestAcceptanceProgrammaticPostingMatchesTheForm(t *testing.T) {
 			t.Errorf("amount_cents = %d, want 350 (3.50 dollars parsed as cents)", viaJSON.AmountCents)
 		}
 	})
+
+	t.Run("duplicate fields use last-value precedence consistently", func(t *testing.T) {
+		cases := []struct {
+			name            string
+			jsonBody        string
+			formBody        string
+			wantCode        string
+			wantAmount      int64
+			wantDescription string
+		}{
+			{
+				name:            "duplicate amount accepts the last value",
+				jsonBody:        `{"amount":"0","amount":"4.25","description":"Last amount"}`,
+				formBody:        "amount=0&amount=4.25&description=Last+amount",
+				wantAmount:      425,
+				wantDescription: "Last amount",
+			},
+			{
+				name:     "duplicate description rejects the last empty value",
+				jsonBody: `{"amount":"4.25","description":"First description","description":""}`,
+				formBody: "amount=4.25&description=First+description&description=",
+				wantCode: "description_empty",
+			},
+		}
+
+		for _, tc := range cases {
+			t.Run(tc.name, func(t *testing.T) {
+				countBefore := a.transactionCount(accountID)
+				jsonRes := a.postJSON(postPath, tc.jsonBody)
+				formRes := a.request(http.MethodPost, postPath, "application/x-www-form-urlencoded", tc.formBody)
+
+				if tc.wantCode != "" {
+					if got := jsonRes.status; got != http.StatusBadRequest {
+						t.Errorf("JSON status = %d, want 400; body:\n%s", got, jsonRes.body)
+					}
+					if got := decodeError(t, jsonRes).Error.Code; got != tc.wantCode {
+						t.Errorf("JSON error code = %q, want %q", got, tc.wantCode)
+					}
+					if got := formRes.status; got != http.StatusSeeOther {
+						t.Errorf("form status = %d, want 303; body:\n%s", got, formRes.body)
+					}
+					if !strings.Contains(formRes.location, "error="+tc.wantCode) {
+						t.Errorf("form Location = %q, want error=%s", formRes.location, tc.wantCode)
+					}
+					if got := a.transactionCount(accountID); got != countBefore {
+						t.Errorf("transaction count = %d after duplicate-key rejection, want %d", got, countBefore)
+					}
+					return
+				}
+
+				if got := jsonRes.status; got != http.StatusCreated {
+					t.Fatalf("JSON status = %d, want 201; body:\n%s", got, jsonRes.body)
+				}
+				var viaJSON apiTransaction
+				decodeJSON(t, jsonRes.body, &viaJSON)
+				if got := formRes.status; got != http.StatusSeeOther {
+					t.Fatalf("form status = %d, want 303; body:\n%s", got, formRes.body)
+				}
+				viaForm := a.transactions(accountID)[0]
+				if viaJSON.AmountCents != tc.wantAmount || viaJSON.Description != tc.wantDescription ||
+					viaForm.AmountCents != viaJSON.AmountCents || viaForm.Description != viaJSON.Description {
+					t.Errorf("duplicate-key persistence differs: JSON=%+v form=%+v", viaJSON, viaForm)
+				}
+				if got := a.transactionCount(accountID); got != countBefore+2 {
+					t.Errorf("transaction count = %d after accepted duplicate-key posts, want %d", got, countBefore+2)
+				}
+			})
+		}
+	})
 }
 
 // TestAcceptanceBalanceFloorHoldsAcrossPosts covers Story 5's cross-operation
@@ -657,6 +727,14 @@ func TestAcceptanceResetAndRun(t *testing.T) {
 		if got := a.balanceCents(accounts[0].ID); got != 128350 {
 			t.Errorf("seeded balance for %s = %d, want exactly 128350", accounts[0].ID, got)
 		}
+
+		emptyPage := a.get("/?account=acct-3")
+		if got, want := emptyPage.status, http.StatusOK; got != want {
+			t.Errorf("GET /?account=acct-3 status = %d, want %d", got, want)
+		}
+		mustContain(t, emptyPage.body, `class="balance">$0.00`, "seeded empty account page")
+		mustContain(t, emptyPage.body, "No transactions.", "seeded empty account page")
+		mustContain(t, emptyPage.body, `<form method="post" action="/api/accounts/acct-3/transactions">`, "seeded empty account page")
 
 		// One unbroken global sequence, not a per-account restart.
 		seen := map[string]bool{}

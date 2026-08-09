@@ -1,7 +1,10 @@
 package httpapi
 
 import (
+	"bytes"
 	"encoding/json"
+	"errors"
+	"log"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -19,6 +22,26 @@ var routerClock = clock.FixedClock{T: time.Date(2026, time.August, 8, 14, 30, 0,
 type routerTestStore struct {
 	accounts     []ledger.Account
 	transactions map[string][]ledger.Transaction
+}
+
+type failingRouterStore struct {
+	ledger.Store
+	accountsErr     error
+	transactionsErr error
+}
+
+func (s failingRouterStore) Accounts() ([]ledger.Account, error) {
+	if s.accountsErr != nil {
+		return nil, s.accountsErr
+	}
+	return s.Store.Accounts()
+}
+
+func (s failingRouterStore) Transactions(accountID string) ([]ledger.Transaction, error) {
+	if s.transactionsErr != nil {
+		return nil, s.transactionsErr
+	}
+	return s.Store.Transactions(accountID)
 }
 
 func (s routerTestStore) Accounts() ([]ledger.Account, error) {
@@ -180,6 +203,7 @@ func TestRouterRendersAccountPageMarkup(t *testing.T) {
 		}
 		for _, markup := range []string{
 			`class="balance">$1,283.50`,
+			`class="selected-account">Selected account: Checking`,
 			`<form method="post" action="/api/accounts/acct-1/transactions">`,
 		} {
 			if !strings.Contains(body, markup) {
@@ -293,9 +317,11 @@ func TestRouterRendersPageErrorStates(t *testing.T) {
 		if !strings.Contains(panel, "Description must not be empty.") {
 			t.Errorf("error panel = %q, want matching description error message; body = %s", panel, body)
 		}
+		balancePosition := strings.Index(body, `class="balance"`)
+		panelEndOffset := strings.Index(body[errorPosition:], "</p>")
 		formPosition := strings.Index(body, "<form")
-		if formPosition < 0 || errorPosition >= formPosition {
-			t.Errorf("error panel position = %d, form position = %d, want panel before form; body = %s", errorPosition, formPosition, body)
+		if balancePosition < 0 || balancePosition >= errorPosition || panelEndOffset < 0 || formPosition < 0 || strings.TrimSpace(body[errorPosition+panelEndOffset+len("</p>"):formPosition]) != "" {
+			t.Errorf("error panel must follow the balance and immediately precede the form; body = %s", body)
 		}
 	})
 
@@ -924,4 +950,76 @@ func TestRouterServesAccountTransactions(t *testing.T) {
 	})
 }
 
+func TestRouterLogsUnexpectedStoreErrorsWithoutDisclosingThem(t *testing.T) {
+	baseStore := &routerTestStore{
+		accounts: []ledger.Account{{ID: "acct-1", Name: "Checking"}},
+	}
+
+	for _, tt := range []struct {
+		name  string
+		path  string
+		store failingRouterStore
+		err   error
+	}{
+		{
+			name: "account list failure",
+			path: "/api/accounts",
+			err:  errors.New("database account query unavailable"),
+			store: failingRouterStore{
+				Store: baseStore,
+			},
+		},
+		{
+			name: "account balance failure",
+			path: "/api/accounts",
+			err:  errors.New("database balance query unavailable"),
+			store: failingRouterStore{
+				Store: baseStore,
+			},
+		},
+		{
+			name: "transaction list failure",
+			path: "/api/accounts/acct-1/transactions",
+			err:  errors.New("database transaction query unavailable"),
+			store: failingRouterStore{
+				Store: baseStore,
+			},
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			if tt.name == "account list failure" {
+				tt.store.accountsErr = tt.err
+			} else {
+				tt.store.transactionsErr = tt.err
+			}
+			router, err := NewRouter(tt.store, routerClock)
+			if err != nil {
+				t.Fatalf("NewRouter() error = %v, want nil", err)
+			}
+
+			var logs bytes.Buffer
+			originalOutput := log.Writer()
+			log.SetOutput(&logs)
+			t.Cleanup(func() { log.SetOutput(originalOutput) })
+
+			rec := httptest.NewRecorder()
+			router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, tt.path, nil))
+
+			if got, want := rec.Code, http.StatusInternalServerError; got != want {
+				t.Errorf("status = %d, want %d", got, want)
+			}
+			if got, want := rec.Header().Get("Content-Type"), "text/plain; charset=utf-8"; got != want {
+				t.Errorf("Content-Type = %q, want %q", got, want)
+			}
+			if body := rec.Body.String(); strings.Contains(body, tt.err.Error()) {
+				t.Errorf("500 response disclosed internal error %q in body %q", tt.err, body)
+			}
+			if output := logs.String(); !strings.Contains(output, tt.err.Error()) {
+				t.Errorf("log output = %q, want underlying error %q", output, tt.err)
+			}
+		})
+	}
+}
+
 var _ ledger.Store = (*routerTestStore)(nil)
+var _ ledger.Store = failingRouterStore{}

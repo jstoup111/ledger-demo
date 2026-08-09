@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"html/template"
 	"io"
+	"log"
 	"mime"
 	"net/http"
 	"net/url"
@@ -57,13 +58,15 @@ type pageTransaction struct {
 }
 
 type pageData struct {
-	Accounts         []pageAccount
-	Balance          string
-	ErrorMessage     string
-	AccountNotFound  bool
-	RequestedAccount string
-	FormAction       string
-	Transactions     []pageTransaction
+	Accounts           []pageAccount
+	Balance            string
+	SelectedAccount    string
+	HasSelectedAccount bool
+	ErrorMessage       string
+	AccountNotFound    bool
+	RequestedAccount   string
+	FormAction         string
+	Transactions       []pageTransaction
 }
 
 func handlePage(page *template.Template, store ledger.Store) http.HandlerFunc {
@@ -127,6 +130,8 @@ func handlePage(page *template.Template, store ledger.Store) http.HandlerFunc {
 		}
 
 		data.Balance = formatDollars(balance)
+		data.SelectedAccount = selected.Name
+		data.HasSelectedAccount = true
 		data.FormAction = "/api/accounts/" + url.PathEscape(selected.ID) + "/transactions"
 		data.Transactions = make([]pageTransaction, 0, len(transactions))
 		for _, transaction := range transactions {
@@ -240,6 +245,7 @@ func handleAccounts(store ledger.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		accounts, err := store.Accounts()
 		if err != nil {
+			log.Printf("list accounts: %v", err)
 			http.Error(w, "list accounts failed", http.StatusInternalServerError)
 			return
 		}
@@ -251,6 +257,7 @@ func handleAccounts(store ledger.Store) http.HandlerFunc {
 		for _, account := range accounts {
 			balance, err := ledger.Balance(store, account.ID)
 			if err != nil {
+				log.Printf("derive balance for account %q: %v", account.ID, err)
 				http.Error(w, "derive balance failed", http.StatusInternalServerError)
 				return
 			}
@@ -274,6 +281,7 @@ func handleAccountTransactions(store ledger.Store) http.HandlerFunc {
 				writeJSONError(w, err)
 				return
 			}
+			log.Printf("list transactions for account %q: %v", r.PathValue("id"), err)
 			http.Error(w, "list transactions failed", http.StatusInternalServerError)
 			return
 		}
@@ -380,5 +388,12 @@ func postRequest(r *http.Request) (transactionPostRequest, bool, error) {
 	if err != nil {
 		return transactionPostRequest{}, false, err
 	}
-	return transactionPostRequest{amount: values.Get("amount"), description: values.Get("description")}, false, nil
+	return transactionPostRequest{amount: lastFormValue(values["amount"]), description: lastFormValue(values["description"])}, false, nil
+}
+
+func lastFormValue(values []string) string {
+	if len(values) == 0 {
+		return ""
+	}
+	return values[len(values)-1]
 }
