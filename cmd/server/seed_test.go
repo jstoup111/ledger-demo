@@ -35,7 +35,7 @@ func TestLoadSeedDataIsDeterministic(t *testing.T) {
 
 	idPattern := regexp.MustCompile(`^txn-\d{4}$`)
 	seenIDs := make(map[string]bool, len(first.transactions))
-	perAccount := make(map[string]int, len(first.accounts))
+	perAccount := make(map[string][]ledger.Transaction, len(first.accounts))
 	for _, transaction := range first.transactions {
 		if !idPattern.MatchString(transaction.ID) {
 			t.Fatalf("transaction ID %q does not match %q", transaction.ID, idPattern)
@@ -44,15 +44,20 @@ func TestLoadSeedDataIsDeterministic(t *testing.T) {
 			t.Fatalf("transaction ID %q is duplicated", transaction.ID)
 		}
 		seenIDs[transaction.ID] = true
-		perAccount[transaction.AccountID]++
+		perAccount[transaction.AccountID] = append(perAccount[transaction.AccountID], transaction)
 		if transaction.CreatedAt != seedClock.Now() {
 			t.Fatalf("transaction %q created at %v, want injected clock %v", transaction.ID, transaction.CreatedAt, seedClock.Now())
 		}
 	}
-	for _, account := range first.accounts {
-		if count := perAccount[account.ID]; count < 8 || count > 12 {
-			t.Fatalf("account %q has %d transactions, want 8-12", account.ID, count)
-		}
+	var acct1Balance int64
+	for _, transaction := range perAccount["acct-1"] {
+		acct1Balance += transaction.Amount
+	}
+	if acct1Balance != 128350 {
+		t.Fatalf("acct-1 balance = %d cents, want 128350", acct1Balance)
+	}
+	if got := len(perAccount["acct-3"]); got != 0 {
+		t.Fatalf("acct-3 transactions = %d, want 0", got)
 	}
 	for number := 1; number <= len(first.transactions); number++ {
 		id := fmt.Sprintf("txn-%04d", number)

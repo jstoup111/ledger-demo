@@ -37,7 +37,7 @@ var demoSeed = []seedAccount{
 	{
 		account: ledger.Account{ID: "acct-1", Name: "Everyday Checking"},
 		transactions: []seedTransaction{
-			{amount: 245000, description: "Paycheck"},
+			{amount: 158579, description: "Paycheck"},
 			{amount: -6450, description: "Grocery market"},
 			{amount: -3200, description: "Electric bill"},
 			{amount: -1499, description: "Music subscription"},
@@ -46,6 +46,9 @@ var demoSeed = []seedAccount{
 			{amount: -4250, description: "Fuel station"},
 			{amount: -1880, description: "Phone bill"},
 			{amount: -7600, description: "Dinner with friends"},
+			{amount: 10000, description: "Tax refund"},
+			{amount: -4500, description: "Membership renewal"},
+			{amount: -5500, description: "Concert tickets"},
 		},
 	},
 	{
@@ -60,20 +63,12 @@ var demoSeed = []seedAccount{
 			{amount: -5400, description: "Museum passes"},
 			{amount: 30000, description: "Automatic transfer"},
 			{amount: -22500, description: "Cabin deposit"},
+			{amount: 1000, description: "Interest credit"},
+			{amount: -400, description: "Transfer fee"},
+			{amount: -600, description: "Account fee"},
 		},
 	},
 	{
 		account: ledger.Account{ID: "acct-3", Name: "Project Fund"},
-		transactions: []seedTransaction{
-			{amount: 180000, description: "Project budget"},
-			{amount: -24000, description: "Materials shop"},
-			{amount: -6800, description: "Printing"},
-			{amount: 12500, description: "Client reimbursement"},
-			{amount: -19500, description: "Workshop rental"},
-			{amount: -3600, description: "Courier"},
-			{amount: 48000, description: "Milestone payment"},
-			{amount: -7900, description: "Reference books"},
-			{amount: -11200, description: "Presentation supplies"},
-		},
 	},
 }
