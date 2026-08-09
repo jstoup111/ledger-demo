@@ -2,6 +2,8 @@ package main
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"reflect"
 	"regexp"
 	"testing"
@@ -54,6 +56,53 @@ func TestLoadSeedDataIsDeterministic(t *testing.T) {
 		if !seenIDs[id] {
 			t.Fatalf("transaction IDs are not globally unbroken: missing %q", id)
 		}
+	}
+}
+
+func TestSeedResetProducesIdenticalFileBackedRows(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "ledger.db")
+	if !filepath.IsAbs(dbPath) {
+		t.Fatalf("database path %q is not absolute", dbPath)
+	}
+	t.Setenv("LEDGER_DB_PATH", dbPath)
+
+	workingDirectory, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Getwd() error = %v", err)
+	}
+	isolatedDirectory := t.TempDir()
+	if err := os.Chdir(isolatedDirectory); err != nil {
+		t.Fatalf("Chdir(%q) error = %v", isolatedDirectory, err)
+	}
+	t.Cleanup(func() {
+		if err := os.Chdir(workingDirectory); err != nil {
+			t.Errorf("restore working directory %q: %v", workingDirectory, err)
+		}
+	})
+	defaultPath := filepath.Join(isolatedDirectory, "ledger.db")
+
+	if err := run("seed"); err != nil {
+		t.Fatalf("first run(seed) error = %v", err)
+	}
+	if _, err := os.Stat(defaultPath); !os.IsNotExist(err) {
+		t.Fatalf("default database %q was touched; stat error = %v", defaultPath, err)
+	}
+	first := seededDatabaseState(t, dbPath)
+
+	if err := os.Remove(dbPath); err != nil {
+		t.Fatalf("Remove(%q) error = %v", dbPath, err)
+	}
+
+	if err := run("seed"); err != nil {
+		t.Fatalf("second run(seed) error = %v", err)
+	}
+	if _, err := os.Stat(defaultPath); !os.IsNotExist(err) {
+		t.Fatalf("default database %q was touched; stat error = %v", defaultPath, err)
+	}
+	second := seededDatabaseState(t, dbPath)
+
+	if !reflect.DeepEqual(first, second) {
+		t.Fatalf("seed rows differ after file-backed reset:\nfirst:  %#v\nsecond: %#v", first, second)
 	}
 }
 

@@ -123,6 +123,11 @@ func seededDatabaseState(t *testing.T, dbPath string) seedState {
 	if err != nil {
 		t.Fatalf("Open(%q) error = %v", dbPath, err)
 	}
+	defer func() {
+		if err := database.Close(); err != nil {
+			t.Errorf("Close(%q) error = %v", dbPath, err)
+		}
+	}()
 	accounts, err := database.Accounts()
 	if err != nil {
 		t.Fatalf("Accounts() error = %v", err)
