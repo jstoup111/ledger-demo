@@ -13,6 +13,9 @@ func PostTransaction(store Store, accountID string, amount int64, description st
 	if strings.TrimSpace(description) == "" {
 		return Transaction{}, fmt.Errorf("posting transaction: %w", ErrDescriptionEmpty)
 	}
+	if len(description) > 140 {
+		return Transaction{}, fmt.Errorf("posting transaction: %w", ErrDescriptionTooLong)
+	}
 
 	return Transaction{}, nil
 }
