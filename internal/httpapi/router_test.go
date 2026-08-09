@@ -9,8 +9,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jstoup111/ledger-demo/internal/clock"
 	"github.com/jstoup111/ledger-demo/internal/ledger"
 )
+
+var routerClock = clock.FixedClock{T: time.Date(2026, time.August, 8, 14, 30, 0, 0, time.UTC)}
 
 type routerTestStore struct {
 	accounts     []ledger.Account
@@ -60,7 +63,7 @@ func (s *routerTestStore) Append(transaction ledger.Transaction) error {
 // Table-driven, stdlib testing only. This is the convention the whole suite
 // follows: a case per behavior, including a negative case for every rule.
 func TestRouter(t *testing.T) {
-	router, err := NewRouter(&routerTestStore{})
+	router, err := NewRouter(&routerTestStore{}, routerClock)
 	if err != nil {
 		t.Fatalf("NewRouter() error = %v, want nil", err)
 	}
@@ -132,7 +135,7 @@ func TestRouterRendersAccountPageMarkup(t *testing.T) {
 			},
 		},
 	}
-	router, err := NewRouter(&store)
+	router, err := NewRouter(&store, routerClock)
 	if err != nil {
 		t.Fatalf("NewRouter() error = %v, want nil", err)
 	}
@@ -250,7 +253,7 @@ func TestRouterRendersPageErrorStates(t *testing.T) {
 			"acct-1": {{ID: "txn-0001", AccountID: "acct-1", Amount: 10000, Description: "Opening balance"}},
 		},
 	}
-	router, err := NewRouter(&store)
+	router, err := NewRouter(&store, routerClock)
 	if err != nil {
 		t.Fatalf("NewRouter() error = %v, want nil", err)
 	}
@@ -347,7 +350,7 @@ func TestRouterPostsTransactionsForJSONAndFormRequests(t *testing.T) {
 			"acct?2": {{ID: "txn-0002", AccountID: "acct?2", Amount: 10000}},
 		},
 	}
-	router, err := NewRouter(store)
+	router, err := NewRouter(store, routerClock)
 	if err != nil {
 		t.Fatalf("NewRouter() error = %v, want nil", err)
 	}
@@ -447,7 +450,7 @@ func TestRouterRejectsMalformedJSONAmountsWithoutAppending(t *testing.T) {
 		accounts:     []ledger.Account{{ID: "acct-1", Name: "Checking"}},
 		transactions: map[string][]ledger.Transaction{"acct-1": {{Amount: 10000}}},
 	}
-	router, err := NewRouter(store)
+	router, err := NewRouter(store, routerClock)
 	if err != nil {
 		t.Fatalf("NewRouter() error = %v, want nil", err)
 	}
@@ -524,7 +527,7 @@ func TestRouterRejectsWrongMethodsAndUnknownPathsWithoutABody(t *testing.T) {
 			"acct-1": {{ID: "txn-0001", AccountID: "acct-1", Amount: 100}},
 		},
 	}
-	router, err := NewRouter(&store)
+	router, err := NewRouter(&store, routerClock)
 	if err != nil {
 		t.Fatalf("NewRouter() error = %v, want nil", err)
 	}
@@ -578,7 +581,7 @@ func TestRouterServesAccountsWithDerivedBalances(t *testing.T) {
 			},
 		},
 	}
-	router, err := NewRouter(&store)
+	router, err := NewRouter(&store, routerClock)
 	if err != nil {
 		t.Fatalf("NewRouter() error = %v, want nil", err)
 	}
@@ -629,7 +632,7 @@ func TestRouterServesAccountTransactions(t *testing.T) {
 			},
 		},
 	}
-	router, err := NewRouter(&store)
+	router, err := NewRouter(&store, routerClock)
 	if err != nil {
 		t.Fatalf("NewRouter() error = %v, want nil", err)
 	}

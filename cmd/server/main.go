@@ -8,9 +8,14 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"time"
 
+	"github.com/jstoup111/ledger-demo/internal/clock"
 	"github.com/jstoup111/ledger-demo/internal/httpapi"
+	"github.com/jstoup111/ledger-demo/internal/store"
 )
+
+var listenAndServe = http.ListenAndServe
 
 const (
 	defaultPort   = "8080"
@@ -25,23 +30,31 @@ func main() {
 		command = os.Args[1]
 	}
 
-	var err error
-	switch command {
-	case "serve":
-		err = serve()
-	case "seed":
-		err = seed()
-	default:
-		err = fmt.Errorf("unknown command %q (want: serve, seed)", command)
-	}
-
-	if err != nil {
+	if err := run(command); err != nil {
 		log.Fatalf("error: %v", err)
 	}
 }
 
+func run(command string) error {
+	switch command {
+	case "serve":
+		return serve()
+	case "seed":
+		return seed()
+	default:
+		return fmt.Errorf("unknown command %q (want: serve, seed)", command)
+	}
+}
+
 func serve() error {
-	router, err := httpapi.NewRouter()
+	dbPath := env("LEDGER_DB_PATH", defaultDBPath)
+	database, err := store.Open(dbPath)
+	if err != nil {
+		return fmt.Errorf("open database %q: %w", dbPath, err)
+	}
+	defer database.Close()
+
+	router, err := httpapi.NewRouter(database, clock.SystemClock{})
 	if err != nil {
 		return fmt.Errorf("building router: %w", err)
 	}
@@ -49,18 +62,24 @@ func serve() error {
 	addr := ":" + env("PORT", defaultPort)
 	log.Printf("ledger-demo listening on http://localhost%s", addr)
 
-	if err := http.ListenAndServe(addr, router); err != nil && !errors.Is(err, http.ErrServerClosed) {
+	if err := listenAndServe(addr, router); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		return fmt.Errorf("listening on %s: %w", addr, err)
 	}
 	return nil
 }
 
-// seed loads deterministic demo data: 3 accounts with 8-12 plausible
-// transactions each, fixed timestamps, no randomness. It is not implemented yet
-// because it depends on the ledger domain, which is built during the demo.
 func seed() error {
-	log.Printf("seed: nothing to load yet — the ledger domain is built during the demo")
-	log.Printf("seed: target database would be %s", env("LEDGER_DB_PATH", defaultDBPath))
+	dbPath := env("LEDGER_DB_PATH", defaultDBPath)
+	database, err := store.Open(dbPath)
+	if err != nil {
+		return fmt.Errorf("open database %q: %w", dbPath, err)
+	}
+	defer database.Close()
+
+	seedClock := clock.FixedClock{T: time.Date(2026, time.August, 8, 14, 30, 0, 0, time.UTC)}
+	if err := loadSeedData(seedClock, database); err != nil {
+		return fmt.Errorf("load seed data: %w", err)
+	}
 	return nil
 }
 

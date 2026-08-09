@@ -28,7 +28,7 @@ import (
 //	POST /api/accounts/{id}/transactions  → post a transaction
 //
 // JSON errors return a typed code plus a human-readable message.
-func NewRouter(store ledger.Store) (http.Handler, error) {
+func NewRouter(store ledger.Store, clock clock.Clock) (http.Handler, error) {
 	page, err := template.ParseFS(web.FS, "index.html.tmpl")
 	if err != nil {
 		return nil, err
@@ -37,7 +37,7 @@ func NewRouter(store ledger.Store) (http.Handler, error) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/accounts", handleAccounts(store))
 	mux.HandleFunc("GET /api/accounts/{id}/transactions", handleAccountTransactions(store))
-	mux.HandleFunc("POST /api/accounts/{id}/transactions", handlePostTransaction(store))
+	mux.HandleFunc("POST /api/accounts/{id}/transactions", handlePostTransaction(store, clock))
 	mux.Handle("GET /style.css", http.FileServerFS(web.FS))
 	mux.HandleFunc("GET /{$}", handlePage(page, store))
 
@@ -288,7 +288,7 @@ func handleAccountTransactions(store ledger.Store) http.HandlerFunc {
 	}
 }
 
-func handlePostTransaction(store ledger.Store) http.HandlerFunc {
+func handlePostTransaction(store ledger.Store, clock clock.Clock) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		request, jsonResponse, err := postRequest(r)
 		if err != nil {
@@ -303,7 +303,7 @@ func handlePostTransaction(store ledger.Store) http.HandlerFunc {
 		}
 
 		accountID := r.PathValue("id")
-		transaction, err := ledger.PostTransaction(clock.SystemClock{}, store, accountID, amount, request.description)
+		transaction, err := ledger.PostTransaction(clock, store, accountID, amount, request.description)
 		if err != nil {
 			if codeFor(err).status != 0 {
 				writeJSONError(w, err)

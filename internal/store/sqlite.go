@@ -23,6 +23,11 @@ type SQLite struct {
 	db *sql.DB
 }
 
+// Close releases the database connection pool.
+func (s *SQLite) Close() error {
+	return s.db.Close()
+}
+
 // Open opens a SQLite database at dsn and creates the ledger schema.
 func Open(dsn string) (*SQLite, error) {
 	db, err := sql.Open("sqlite", dsn)
