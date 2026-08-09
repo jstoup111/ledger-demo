@@ -1,0 +1,32 @@
+/* Projector-legible. Light theme only: no dark mode, no breakpoints, no animation. */
+
+body {
+  margin: 0;
+  padding: 2rem;
+  background: #ffffff;
+  color: #111111;
+  font-family: system-ui, -apple-system, sans-serif;
+  font-size: 20px;
+  line-height: 1.5;
+}
+
+main {
+  max-width: 60rem;
+}
+
+h1 {
+  font-size: 2rem;
+  margin: 0 0 1rem;
+}
+
+.stub {
+  color: #444444;
+}
+
+/* Reserved for the demo — kept here so the classes exist before the markup does.
+
+.balance  { font-size: 4rem; font-weight: 700; }
+.error    { background: #fdecea; border-left: 6px solid #b3261e; padding: 1rem; }
+table     { border-collapse: collapse; width: 100%; font-size: 1rem; }
+th, td    { border-bottom: 2px solid #dddddd; padding: 0.6rem; text-align: left; }
+*/

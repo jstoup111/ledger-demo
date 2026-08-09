@@ -1,0 +1,34 @@
+# Harness runtime state (not source)
+.pipeline/
+.daemon/
+.worktrees/
+.memory
+
+# Local environment
+.env
+.env.local
+.env.local.*
+.env.*.local
+
+# Build artifacts
+/bin/
+/server
+ledger-demo
+
+# SQLite database files — recreated by `make seed` / `make reset`
+*.db
+*.db-shm
+*.db-wal
+
+# Go
+*.test
+*.out
+
+# macOS
+.DS_Store
+
+# Editors
+.idea/
+.vscode/
+*.swp
+*.swo
