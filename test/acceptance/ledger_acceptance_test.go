@@ -619,7 +619,7 @@ func TestAcceptanceResetAndRun(t *testing.T) {
 		return dumpState(newAppAt(t, dbPath, base))
 	}()
 
-	t.Run("a pristine reset holds three accounts with eight to twelve transactions each", func(t *testing.T) {
+	t.Run("a pristine reset holds the deterministic three-account fixture", func(t *testing.T) {
 		base, stop := startServer(t, dbPath)
 		defer stop()
 		a := newAppAt(t, dbPath, base)
@@ -629,15 +629,28 @@ func TestAcceptanceResetAndRun(t *testing.T) {
 			t.Fatalf("seeded account count = %d, want 3", len(accounts))
 		}
 
+		expectedTransactionCounts := map[string]int{
+			"acct-1": 12,
+			"acct-2": 12,
+			"acct-3": 0,
+		}
 		var ids []string
 		for _, acct := range accounts {
 			txs := a.transactions(acct.ID)
-			if len(txs) < 8 || len(txs) > 12 {
-				t.Errorf("account %s has %d transactions, want between 8 and 12", acct.ID, len(txs))
+			want, knownAccount := expectedTransactionCounts[acct.ID]
+			if !knownAccount {
+				t.Errorf("unexpected seeded account %q", acct.ID)
+				continue
+			}
+			if len(txs) != want {
+				t.Errorf("account %s has %d transactions, want %d", acct.ID, len(txs), want)
 			}
 			for _, tx := range txs {
 				ids = append(ids, tx.ID)
 			}
+		}
+		if len(ids) < 24 || len(ids) > 36 {
+			t.Errorf("seeded transaction count = %d, want 24-36", len(ids))
 		}
 
 		// One unbroken global sequence, not a per-account restart.
