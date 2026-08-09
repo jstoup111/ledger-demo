@@ -8,8 +8,9 @@ import (
 
 type postingStore struct {
 	fakeStore
-	appended   []Transaction
-	accountErr error
+	appended     []Transaction
+	accountErr   error
+	transactions []Transaction
 }
 
 func (s *postingStore) Account(id string) (Account, error) {
@@ -24,6 +25,10 @@ func (s *postingStore) Append(transaction Transaction) error {
 	return nil
 }
 
+func (s *postingStore) Transactions(string) ([]Transaction, error) {
+	return s.transactions, nil
+}
+
 func TestPostTransactionRejectsUnknownAccountBeforeOtherValidation(t *testing.T) {
 	store := &postingStore{accountErr: ErrAccountNotFound}
 
@@ -31,6 +36,43 @@ func TestPostTransactionRejectsUnknownAccountBeforeOtherValidation(t *testing.T)
 
 	if !errors.Is(err, ErrAccountNotFound) || len(store.appended) != 0 {
 		t.Fatalf("PostTransaction() error = %v, appended = %d; want ErrAccountNotFound and no transaction", err, len(store.appended))
+	}
+}
+
+func TestPostTransactionEnforcesBalanceFloor(t *testing.T) {
+	tests := []struct {
+		name        string
+		amount      int64
+		wantErr     error
+		wantBalance int64
+	}{
+		{name: "would make balance negative", amount: -1001, wantErr: ErrBalanceWouldGoNegative, wantBalance: 1000},
+		{name: "brings balance to zero", amount: -1000, wantBalance: 0},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			store := &postingStore{transactions: []Transaction{{Amount: 1000}}}
+			balance, err := Balance(store, "acct-1")
+			if err != nil {
+				t.Fatalf("Balance() error = %v", err)
+			}
+
+			_, err = PostTransaction(store, "acct-1", tt.amount, "withdrawal")
+
+			if !errors.Is(err, tt.wantErr) {
+				t.Fatalf("PostTransaction() error = %v, want error matching %v", err, tt.wantErr)
+			}
+			if tt.wantErr != nil && len(store.appended) != 0 {
+				t.Fatalf("PostTransaction() appended = %d; want no transaction", len(store.appended))
+			}
+			if err == nil {
+				balance += tt.amount
+			}
+			if balance != tt.wantBalance {
+				t.Fatalf("recomputed balance = %d, want %d", balance, tt.wantBalance)
+			}
+		})
 	}
 }
 

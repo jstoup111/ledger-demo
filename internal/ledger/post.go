@@ -19,6 +19,13 @@ func PostTransaction(store Store, accountID string, amount int64, description st
 	if len(description) > 140 {
 		return Transaction{}, fmt.Errorf("posting transaction: %w", ErrDescriptionTooLong)
 	}
+	balance, err := Balance(store, accountID)
+	if err != nil {
+		return Transaction{}, fmt.Errorf("posting transaction: %w", err)
+	}
+	if balance+amount < 0 {
+		return Transaction{}, fmt.Errorf("posting transaction: %w", ErrBalanceWouldGoNegative)
+	}
 
 	return Transaction{}, nil
 }
