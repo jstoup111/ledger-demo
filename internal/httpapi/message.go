@@ -40,12 +40,26 @@ func messageFor(identifier string, context messageContext) string {
 		}
 		return "Amount is malformed."
 	case "balance_would_go_negative":
-		return "Balance would go negative."
+		return balanceRejectionMessage("Balance would go negative.", context)
 	case "balance_overflow":
-		return "Balance would overflow."
+		return balanceRejectionMessage("Balance would overflow.", context)
 	default:
 		return "Unable to post transaction."
 	}
+}
+
+func balanceRejectionMessage(message string, context messageContext) string {
+	value, ok := integerCentsCarriedValue(context.value)
+	if !ok || !context.balanceKnown {
+		return message
+	}
+
+	cents, err := strconv.ParseInt(value, 10, 64)
+	if err != nil {
+		return message
+	}
+
+	return message + " Posting " + formatDollars(cents) + " against a balance of " + formatDollars(context.balance) + "."
 }
 
 func freeTextCarriedValue(value string) (string, bool) {

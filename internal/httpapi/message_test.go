@@ -147,6 +147,76 @@ func TestMessageForNamesSubmittedAmountForAmountRejections(t *testing.T) {
 	}
 }
 
+func TestMessageForNamesPostingAndBalanceForBalanceRejections(t *testing.T) {
+	tests := []struct {
+		name       string
+		identifier string
+		context    messageContext
+		want       string
+	}{
+		{
+			name:       "negative balance with known balance",
+			identifier: "balance_would_go_negative",
+			context: messageContext{
+				value:        "-200000",
+				balance:      128350,
+				balanceKnown: true,
+			},
+			want: "Balance would go negative. Posting -$2,000.00 against a balance of $1,283.50.",
+		},
+		{
+			name:       "overflow with known balance",
+			identifier: "balance_overflow",
+			context: messageContext{
+				value:        "-200000",
+				balance:      128350,
+				balanceKnown: true,
+			},
+			want: "Balance would overflow. Posting -$2,000.00 against a balance of $1,283.50.",
+		},
+		{
+			name:       "negative balance with unknown balance",
+			identifier: "balance_would_go_negative",
+			context:    messageContext{value: "-200000"},
+			want:       "Balance would go negative.",
+		},
+		{
+			name:       "overflow with unknown balance",
+			identifier: "balance_overflow",
+			context:    messageContext{value: "-200000"},
+			want:       "Balance would overflow.",
+		},
+		{
+			name:       "negative balance with invalid cents",
+			identifier: "balance_would_go_negative",
+			context: messageContext{
+				value:        "12.50",
+				balance:      128350,
+				balanceKnown: true,
+			},
+			want: "Balance would go negative.",
+		},
+		{
+			name:       "overflow with invalid cents",
+			identifier: "balance_overflow",
+			context: messageContext{
+				value:        "12.50",
+				balance:      128350,
+				balanceKnown: true,
+			},
+			want: "Balance would overflow.",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := messageFor(tt.identifier, tt.context); got != tt.want {
+				t.Errorf("messageFor(%q, %+v) = %q, want %q", tt.identifier, tt.context, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestMessageForNamesSubmittedCharacterCountForDescriptionTooLong(t *testing.T) {
 	context := messageContext{value: "187"}
 	want := "Description is too long. Submitted: 187 characters; the limit is 140."
