@@ -108,6 +108,44 @@ func (s *SQLite) Append(transaction ledger.Transaction) error {
 	return nil
 }
 
+// Transactions returns an account's transactions newest first.
+func (s *SQLite) Transactions(accountID string) ([]ledger.Transaction, error) {
+	rows, err := s.db.Query(`
+		SELECT id, account_id, amount, description, created_at
+		FROM transactions
+		WHERE account_id = ?
+		ORDER BY created_at DESC, id DESC
+	`, accountID)
+	if err != nil {
+		return nil, fmt.Errorf("list transactions for account %q: %w", accountID, err)
+	}
+	defer rows.Close()
+
+	var transactions []ledger.Transaction
+	for rows.Next() {
+		var transaction ledger.Transaction
+		var createdAt string
+		if err := rows.Scan(
+			&transaction.ID,
+			&transaction.AccountID,
+			&transaction.Amount,
+			&transaction.Description,
+			&createdAt,
+		); err != nil {
+			return nil, fmt.Errorf("scan transaction: %w", err)
+		}
+		transaction.CreatedAt, err = time.Parse(time.RFC3339Nano, createdAt)
+		if err != nil {
+			return nil, fmt.Errorf("parse transaction %q created at: %w", transaction.ID, err)
+		}
+		transactions = append(transactions, transaction)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate transactions: %w", err)
+	}
+	return transactions, nil
+}
+
 // CountTransactions returns the total number of transactions across all accounts.
 func (s *SQLite) CountTransactions() (int, error) {
 	var count int

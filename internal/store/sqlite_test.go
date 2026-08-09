@@ -159,3 +159,47 @@ func TestSQLiteAppendsTransactionsAndCountsAllAccounts(t *testing.T) {
 		t.Fatalf("transaction storage result = %+v, want %+v", got, want)
 	}
 }
+
+func TestSQLiteTransactionsOrdersSameTimestampByIDDescending(t *testing.T) {
+	store, err := Open(":memory:")
+	if err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+	t.Cleanup(func() { _ = store.db.Close() })
+
+	if err := store.InsertAccount(ledger.Account{ID: "acct-1", Name: "First"}); err != nil {
+		t.Fatalf("InsertAccount() error = %v", err)
+	}
+
+	createdAt := time.Date(2026, time.August, 8, 12, 0, 0, 0, time.UTC)
+	for _, transaction := range []ledger.Transaction{
+		{ID: "txn-0001", AccountID: "acct-1", Amount: 100, Description: "first", CreatedAt: createdAt},
+		{ID: "txn-0002", AccountID: "acct-1", Amount: 200, Description: "second", CreatedAt: createdAt},
+		{ID: "txn-0003", AccountID: "acct-1", Amount: 300, Description: "third", CreatedAt: createdAt},
+	} {
+		if err := store.Append(transaction); err != nil {
+			t.Fatalf("Append(%q) error = %v", transaction.ID, err)
+		}
+	}
+
+	firstRead, err := store.Transactions("acct-1")
+	if err != nil {
+		t.Fatalf("Transactions() first read error = %v", err)
+	}
+	secondRead, err := store.Transactions("acct-1")
+	if err != nil {
+		t.Fatalf("Transactions() second read error = %v", err)
+	}
+
+	if got, want := [][]string{transactionIDs(firstRead), transactionIDs(secondRead)}, [][]string{{"txn-0003", "txn-0002", "txn-0001"}, {"txn-0003", "txn-0002", "txn-0001"}}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("Transactions() IDs = %#v, want %#v", got, want)
+	}
+}
+
+func transactionIDs(transactions []ledger.Transaction) []string {
+	ids := make([]string, len(transactions))
+	for i, transaction := range transactions {
+		ids[i] = transaction.ID
+	}
+	return ids
+}
