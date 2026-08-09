@@ -4,12 +4,16 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"log"
 	"math"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -1558,6 +1562,221 @@ func TestRouterRejectsWrongMethodsAndUnknownPathsWithoutABody(t *testing.T) {
 
 	if got := len(store.transactions["acct-1"]); got != transactionsBefore {
 		t.Errorf("stored transaction count = %d, want unchanged %d", got, transactionsBefore)
+	}
+}
+
+func TestNewRouterDeclaresExactlyFiveRoutes(t *testing.T) {
+	_, testFile, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("runtime.Caller() failed")
+	}
+	routerFile := strings.TrimSuffix(testFile, "router_test.go") + "router.go"
+	parsed, err := parser.ParseFile(token.NewFileSet(), routerFile, nil, 0)
+	if err != nil {
+		t.Fatalf("parser.ParseFile(%q) error = %v", routerFile, err)
+	}
+
+	var registrations int
+	for _, declaration := range parsed.Decls {
+		function, ok := declaration.(*ast.FuncDecl)
+		if !ok || function.Name.Name != "NewRouter" {
+			continue
+		}
+		ast.Inspect(function.Body, func(node ast.Node) bool {
+			call, ok := node.(*ast.CallExpr)
+			if !ok {
+				return true
+			}
+			selector, ok := call.Fun.(*ast.SelectorExpr)
+			if !ok || (selector.Sel.Name != "Handle" && selector.Sel.Name != "HandleFunc") {
+				return true
+			}
+			receiver, ok := selector.X.(*ast.Ident)
+			if ok && receiver.Name == "mux" {
+				registrations++
+			}
+			return true
+		})
+	}
+
+	if got, want := registrations, 5; got != want {
+		t.Errorf("NewRouter() route registrations = %d, want %d", got, want)
+	}
+}
+
+func TestRouterFrozenRejectionsDoNotRecordTransactions(t *testing.T) {
+	tests := []struct {
+		name         string
+		accountID    string
+		amount       string
+		description  string
+		transactions map[string][]ledger.Transaction
+		code         string
+		jsonStatus   int
+	}{
+		{
+			name:        "account_not_found",
+			accountID:   "acct-nope",
+			amount:      "1.00",
+			description: "Coffee",
+			transactions: map[string][]ledger.Transaction{
+				"acct-1": {{Amount: 10000}},
+			},
+			code:       "account_not_found",
+			jsonStatus: http.StatusNotFound,
+		},
+		{
+			name:        "amount_zero",
+			accountID:   "acct-1",
+			amount:      "0",
+			description: "Coffee",
+			transactions: map[string][]ledger.Transaction{
+				"acct-1": {{Amount: 10000}},
+			},
+			code:       "amount_zero",
+			jsonStatus: http.StatusBadRequest,
+		},
+		{
+			name:        "description_empty",
+			accountID:   "acct-1",
+			amount:      "1.00",
+			description: "",
+			transactions: map[string][]ledger.Transaction{
+				"acct-1": {{Amount: 10000}},
+			},
+			code:       "description_empty",
+			jsonStatus: http.StatusBadRequest,
+		},
+		{
+			name:        "description_too_long",
+			accountID:   "acct-1",
+			amount:      "1.00",
+			description: strings.Repeat("x", 141),
+			transactions: map[string][]ledger.Transaction{
+				"acct-1": {{Amount: 10000}},
+			},
+			code:       "description_too_long",
+			jsonStatus: http.StatusBadRequest,
+		},
+		{
+			name:        "amount_malformed",
+			accountID:   "acct-1",
+			amount:      "12.3.4",
+			description: "Coffee",
+			transactions: map[string][]ledger.Transaction{
+				"acct-1": {{Amount: 10000}},
+			},
+			code:       "amount_malformed",
+			jsonStatus: http.StatusBadRequest,
+		},
+		{
+			name:        "balance_would_go_negative",
+			accountID:   "acct-1",
+			amount:      "-200.00",
+			description: "Coffee",
+			transactions: map[string][]ledger.Transaction{
+				"acct-1": {{Amount: 10000}},
+			},
+			code:       "balance_would_go_negative",
+			jsonStatus: http.StatusBadRequest,
+		},
+		{
+			name:        "balance_overflow",
+			accountID:   "acct-1",
+			amount:      "0.01",
+			description: "Coffee",
+			transactions: map[string][]ledger.Transaction{
+				"acct-1": {{Amount: math.MaxInt64}},
+			},
+			code:       "balance_overflow",
+			jsonStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			for _, branch := range []struct {
+				name        string
+				contentType string
+				body        func() string
+				wantStatus  int
+			}{
+				{
+					name:        "form",
+					contentType: "application/x-www-form-urlencoded",
+					body: func() string {
+						return url.Values{"amount": {tt.amount}, "description": {tt.description}}.Encode()
+					},
+					wantStatus: http.StatusSeeOther,
+				},
+				{
+					name:        "json",
+					contentType: "application/json",
+					body: func() string {
+						body, err := json.Marshal(map[string]string{"amount": tt.amount, "description": tt.description})
+						if err != nil {
+							t.Fatalf("json.Marshal() error = %v", err)
+						}
+						return string(body)
+					},
+					wantStatus: tt.jsonStatus,
+				},
+			} {
+				t.Run(branch.name, func(t *testing.T) {
+					store := &routerTestStore{
+						accounts:     []ledger.Account{{ID: "acct-1", Name: "Checking"}},
+						transactions: tt.transactions,
+					}
+					router, err := NewRouter(store, routerClock)
+					if err != nil {
+						t.Fatalf("NewRouter() error = %v, want nil", err)
+					}
+
+					countBefore, err := store.CountTransactions()
+					if err != nil {
+						t.Fatalf("CountTransactions() error = %v", err)
+					}
+					balanceBefore, err := ledger.Balance(store, "acct-1")
+					if err != nil {
+						t.Fatalf("Balance() error = %v", err)
+					}
+
+					path := "/api/accounts/" + url.PathEscape(tt.accountID) + "/transactions"
+					response := postTransaction(router, path, branch.contentType, branch.body())
+					if got, want := response.Code, branch.wantStatus; got != want {
+						t.Fatalf("status = %d, want %d; body = %s", got, want, response.Body.String())
+					}
+					if branch.name == "form" {
+						if got := response.Header().Get("Location"); !strings.Contains(got, "error="+tt.code) {
+							t.Errorf("Location = %q, want error code %q", got, tt.code)
+						}
+					} else {
+						var envelope errorEnvelope
+						if err := json.Unmarshal(response.Body.Bytes(), &envelope); err != nil {
+							t.Fatalf("json.Unmarshal() error = %v; body = %s", err, response.Body.String())
+						}
+						if got, want := envelope.Error.Code, tt.code; got != want {
+							t.Errorf("error code = %q, want %q", got, want)
+						}
+					}
+
+					countAfter, err := store.CountTransactions()
+					if err != nil {
+						t.Fatalf("CountTransactions() error = %v", err)
+					}
+					balanceAfter, err := ledger.Balance(store, "acct-1")
+					if err != nil {
+						t.Fatalf("Balance() error = %v", err)
+					}
+					if got, want := countAfter, countBefore; got != want {
+						t.Errorf("transaction count after rejection = %d, want %d", got, want)
+					}
+					if got, want := balanceAfter, balanceBefore; got != want {
+						t.Errorf("derived balance after rejection = %d, want %d", got, want)
+					}
+				})
+			}
+		})
 	}
 }
 

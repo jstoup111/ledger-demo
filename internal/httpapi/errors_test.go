@@ -11,7 +11,7 @@ import (
 	"github.com/jstoup111/ledger-demo/internal/ledger"
 )
 
-func TestCodeForMapsWrappedDomainErrors(t *testing.T) {
+func TestFrozenRejectionIdentifierStatusContract(t *testing.T) {
 	tests := []struct {
 		name string
 		err  error
