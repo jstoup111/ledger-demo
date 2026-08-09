@@ -4,12 +4,16 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"log"
 	"math"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"reflect"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -29,6 +33,30 @@ type failingRouterStore struct {
 	ledger.Store
 	accountsErr     error
 	transactionsErr error
+}
+
+type balanceReadFailsAfterPostingStore struct {
+	ledger.Store
+	transactionsCalls int
+	err               error
+}
+
+func (s *balanceReadFailsAfterPostingStore) Transactions(accountID string) ([]ledger.Transaction, error) {
+	s.transactionsCalls++
+	if s.transactionsCalls > 1 {
+		return nil, s.err
+	}
+	return s.Store.Transactions(accountID)
+}
+
+type transactionCountingRouterStore struct {
+	ledger.Store
+	transactionsCalls int
+}
+
+func (s *transactionCountingRouterStore) Transactions(accountID string) ([]ledger.Transaction, error) {
+	s.transactionsCalls++
+	return s.Store.Transactions(accountID)
 }
 
 func (s failingRouterStore) Accounts() ([]ledger.Account, error) {
@@ -452,6 +480,313 @@ func TestRouterRendersPageErrorStates(t *testing.T) {
 	})
 }
 
+func TestRouterComposesDetailedPageRejectionMessages(t *testing.T) {
+	store := routerTestStore{
+		accounts: []ledger.Account{{ID: "acct-1", Name: "Checking"}},
+		transactions: map[string][]ledger.Transaction{
+			"acct-1": {{ID: "txn-0001", AccountID: "acct-1", Amount: 10000, Description: "Opening balance"}},
+		},
+	}
+	router, err := NewRouter(&store, routerClock)
+	if err != nil {
+		t.Fatalf("NewRouter() error = %v, want nil", err)
+	}
+
+	for _, tt := range []struct {
+		name string
+		path string
+		want string
+	}{
+		{
+			name: "zero amount carries a zero submitted value",
+			path: "/?account=acct-1&error=amount_zero&detail=0.00",
+			want: "Amount must not be zero. Submitted: 0.00.",
+		},
+		{
+			name: "zero amount carries a negative-zero submitted value",
+			path: "/?account=acct-1&error=amount_zero&detail=-0.00",
+			want: "Amount must not be zero. Submitted: -0.00.",
+		},
+		{
+			name: "malformed amount carries the submitted value",
+			path: "/?account=acct-1&error=amount_malformed&detail=12.3.4",
+			want: "Amount is malformed. Submitted: 12.3.4.",
+		},
+		{
+			name: "description count carries the submitted count",
+			path: "/?account=acct-1&error=description_too_long&detail=141",
+			want: "Description is too long. Submitted: 141 characters; the limit is 140.",
+		},
+		{
+			name: "negative balance rejection uses the derived balance",
+			path: "/?account=acct-1&error=balance_would_go_negative&detail=-20000",
+			want: "Balance would go negative. Posting -$200.00 against a balance of $100.00.",
+		},
+		{
+			name: "overflow balance rejection uses the derived balance",
+			path: "/?account=acct-1&error=balance_overflow&detail=9223372036854775807",
+			want: "Balance would overflow. Posting $92,233,720,368,547,758.07 against a balance of $100.00.",
+		},
+		{
+			name: "unknown account identifies the requested account",
+			path: "/?account=acct-nope",
+			want: "Account not found. Requested: acct-nope.",
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, tt.path, nil))
+			body := rec.Body.String()
+
+			panelPosition, panel := pageErrorPanel(t, body)
+			if got := strings.TrimSpace(panel); got != tt.want {
+				t.Errorf("error panel = %q, want %q", got, tt.want)
+			}
+			if strings.Contains(tt.path, "account=acct-1") {
+				balancePosition := strings.Index(body, `class="balance"`)
+				panelEnd := panelPosition + strings.Index(body[panelPosition:], "</p>") + len("</p>")
+				formPosition := strings.Index(body, "<form")
+				if balancePosition < 0 || balancePosition >= panelPosition || formPosition < 0 || panelEnd > formPosition || strings.TrimSpace(body[panelEnd:formPosition]) != "" {
+					t.Errorf("error panel must follow the balance and immediately precede the form; body = %s", body)
+				}
+			}
+		})
+	}
+
+	t.Run("tampered rejection details degrade to plain messages", func(t *testing.T) {
+		for _, tt := range []struct {
+			name    string
+			path    string
+			want    string
+			omitted string
+		}{
+			{
+				name: "absent free-text detail",
+				path: "/?account=acct-1&error=amount_malformed",
+				want: "Amount is malformed.",
+			},
+			{
+				name:    "over-long free-text detail",
+				path:    "/?account=acct-1&error=amount_malformed&detail=" + strings.Repeat("a", 33),
+				want:    "Amount is malformed.",
+				omitted: strings.Repeat("a", 33),
+			},
+			{
+				name:    "control free-text detail",
+				path:    "/?account=acct-1&error=amount_malformed&detail=bad%0Avalue",
+				want:    "Amount is malformed.",
+				omitted: "bad\nvalue",
+			},
+			{
+				name:    "malformed amount with a plausible decimal detail",
+				path:    "/?account=acct-1&error=amount_malformed&detail=12.50",
+				want:    "Amount is malformed.",
+				omitted: "12.50",
+			},
+			{
+				name:    "malformed amount with a plausible whole number detail",
+				path:    "/?account=acct-1&error=amount_malformed&detail=500",
+				want:    "Amount is malformed.",
+				omitted: "500",
+			},
+			{
+				name:    "malformed amount with a plausible negative decimal detail",
+				path:    "/?account=acct-1&error=amount_malformed&detail=-12.50",
+				want:    "Amount is malformed.",
+				omitted: "-12.50",
+			},
+			{
+				name:    "malformed amount with a plausible zero decimal detail",
+				path:    "/?account=acct-1&error=amount_malformed&detail=0.00",
+				want:    "Amount is malformed.",
+				omitted: "0.00",
+			},
+			{
+				name:    "malformed amount with the largest plausible decimal detail",
+				path:    "/?account=acct-1&error=amount_malformed&detail=92233720368547758.07",
+				want:    "Amount is malformed.",
+				omitted: "92233720368547758.07",
+			},
+			{
+				name:    "zero amount with non-zero detail",
+				path:    "/?account=acct-1&error=amount_zero&detail=5.00",
+				want:    "Amount must not be zero.",
+				omitted: "5.00",
+			},
+			{
+				name:    "zero amount with non-numeric detail",
+				path:    "/?account=acct-1&error=amount_zero&detail=not-zero-at-all",
+				want:    "Amount must not be zero.",
+				omitted: "not-zero-at-all",
+			},
+			{
+				name:    "zero amount with negative non-zero detail",
+				path:    "/?account=acct-1&error=amount_zero&detail=-12.34",
+				want:    "Amount must not be zero.",
+				omitted: "-12.34",
+			},
+			{
+				name:    "non-numeric description count",
+				path:    "/?account=acct-1&error=description_too_long&detail=abc",
+				want:    "Description is too long.",
+				omitted: "abc",
+			},
+			{
+				name:    "too-small description count",
+				path:    "/?account=acct-1&error=description_too_long&detail=3",
+				want:    "Description is too long.",
+				omitted: "3",
+			},
+			{
+				name:    "decimal cents detail",
+				path:    "/?account=acct-1&error=balance_would_go_negative&detail=12.50",
+				want:    "Balance would go negative.",
+				omitted: "12.50",
+			},
+			{
+				name:    "detail for a rule with no value",
+				path:    "/?account=acct-1&error=description_empty&detail=ignored-detail",
+				want:    "Description must not be empty.",
+				omitted: "ignored-detail",
+			},
+			{
+				name:    "detail for an unknown identifier",
+				path:    "/?account=acct-1&error=not_a_real_code&detail=unknown-detail",
+				want:    "Unable to post transaction.",
+				omitted: "unknown-detail",
+			},
+		} {
+			t.Run(tt.name, func(t *testing.T) {
+				rec := httptest.NewRecorder()
+				router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, tt.path, nil))
+				body := rec.Body.String()
+
+				_, panel := pageErrorPanel(t, body)
+				if got := strings.TrimSpace(panel); got != tt.want {
+					t.Errorf("error panel = %q, want %q", got, tt.want)
+				}
+				if tt.omitted != "" && strings.Contains(panel, tt.omitted) {
+					t.Errorf("error panel rendered tampered detail %q; panel = %s", tt.omitted, panel)
+				}
+			})
+		}
+	})
+
+	t.Run("balance detail reachability boundaries preserve only producible messages", func(t *testing.T) {
+		for _, tt := range []struct {
+			name string
+			path string
+			want string
+		}{
+			{
+				name: "negative balance at the current balance is plain",
+				path: "/?account=acct-1&error=balance_would_go_negative&detail=-10000",
+				want: "Balance would go negative.",
+			},
+			{
+				name: "negative balance one cent beyond the current balance is enriched",
+				path: "/?account=acct-1&error=balance_would_go_negative&detail=-10001",
+				want: "Balance would go negative. Posting -$100.01 against a balance of $100.00.",
+			},
+			{
+				name: "overflow at the maximum remaining capacity is plain",
+				path: "/?account=acct-1&error=balance_overflow&detail=9223372036854765807",
+				want: "Balance would overflow.",
+			},
+			{
+				name: "overflow one cent beyond the maximum remaining capacity is enriched",
+				path: "/?account=acct-1&error=balance_overflow&detail=9223372036854765808",
+				want: "Balance would overflow. Posting $92,233,720,368,547,658.08 against a balance of $100.00.",
+			},
+		} {
+			t.Run(tt.name, func(t *testing.T) {
+				rec := httptest.NewRecorder()
+				router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, tt.path, nil))
+
+				_, panel := pageErrorPanel(t, rec.Body.String())
+				if got := strings.TrimSpace(panel); got != tt.want {
+					t.Errorf("error panel = %q, want %q", got, tt.want)
+				}
+			})
+		}
+	})
+
+	t.Run("implausible requested account IDs degrade the error panel", func(t *testing.T) {
+		for _, tt := range []struct {
+			name string
+			path string
+		}{
+			{
+				name: "absent requested account ID",
+				path: "/?error=account_not_found",
+			},
+			{
+				name: "over-long requested account ID",
+				path: "/?account=" + strings.Repeat("a", 33),
+			},
+			{
+				name: "control-character-bearing requested account ID",
+				path: "/?account=acct%0Anope",
+			},
+		} {
+			t.Run(tt.name, func(t *testing.T) {
+				rec := httptest.NewRecorder()
+				router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, tt.path, nil))
+
+				_, panel := pageErrorPanel(t, rec.Body.String())
+				if got, want := strings.TrimSpace(panel), "Account not found."; got != want {
+					t.Errorf("error panel = %q, want %q", got, want)
+				}
+			})
+		}
+	})
+
+	t.Run("resolved account ignores crafted account-not-found error", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/?account=acct-1&error=account_not_found", nil))
+
+		_, panel := pageErrorPanel(t, rec.Body.String())
+		if got, want := strings.TrimSpace(panel), "Account not found."; got != want {
+			t.Errorf("error panel = %q, want %q", got, want)
+		}
+	})
+
+	t.Run("script-like amount detail is escaped visible text", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/?account=acct-1&error=amount_malformed&detail=%3Cscript%3Ealert%281%29%3C%2Fscript%3E", nil))
+		body := rec.Body.String()
+
+		_, panel := pageErrorPanel(t, body)
+		if got, want := strings.TrimSpace(panel), "Amount is malformed. Submitted: &lt;script&gt;alert(1)&lt;/script&gt;."; got != want {
+			t.Errorf("error panel = %q, want %q", got, want)
+		}
+		if strings.Contains(strings.ToLower(body), "<script") {
+			t.Errorf("page rendered a raw script element; body = %s", body)
+		}
+	})
+
+	t.Run("unknown account cannot supply balance context for a valid detail", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/?account=acct-nope&error=balance_would_go_negative&detail=-200000", nil))
+
+		_, panel := pageErrorPanel(t, rec.Body.String())
+		if got, want := strings.TrimSpace(panel), "Balance would go negative."; got != want {
+			t.Errorf("error panel = %q, want %q", got, want)
+		}
+		if strings.Contains(panel, "Posting") {
+			t.Errorf("unknown-account balance rejection included a Posting clause; panel = %q", panel)
+		}
+	})
+
+	t.Run("no error parameter renders no panel", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/?account=acct-1", nil))
+		if strings.Contains(rec.Body.String(), `class="error"`) {
+			t.Errorf("page without an error parameter rendered an error panel; body = %s", rec.Body.String())
+		}
+	})
+}
+
 func pageErrorPanel(t *testing.T, body string) (int, string) {
 	t.Helper()
 
@@ -470,6 +805,28 @@ func pageErrorPanel(t *testing.T, body string) (int, string) {
 		t.Fatalf("error-class element is not closed; body = %s", body)
 	}
 	return elementPosition, body[contentStart : contentStart+closingTagOffset]
+}
+
+func TestPostRedirectDetailScreensAmountMalformedDetails(t *testing.T) {
+	for _, tt := range []struct {
+		name   string
+		detail string
+		want   string
+	}{
+		{name: "plausible decimal", detail: "12.50", want: ""},
+		{name: "plausible whole number", detail: "500", want: ""},
+		{name: "plausible negative decimal", detail: "-12.50", want: ""},
+		{name: "plausible zero decimal", detail: "0.00", want: ""},
+		{name: "largest plausible decimal", detail: "92233720368547758.07", want: ""},
+		{name: "multiple decimal points", detail: "12.3.4", want: "12.3.4"},
+		{name: "script-bearing text", detail: "<script>alert(1)</script>", want: "<script>alert(1)</script>"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := postRedirectDetail("amount_malformed", tt.detail); got != tt.want {
+				t.Errorf("postRedirectDetail(amount_malformed, %q) = %q, want %q", tt.detail, got, tt.want)
+			}
+		})
+	}
 }
 
 func TestRouterPostsTransactionsForJSONAndFormRequests(t *testing.T) {
@@ -613,7 +970,11 @@ func TestRouterNegotiatesCodedPostErrorsByContentType(t *testing.T) {
 			if got, want := form.Code, http.StatusSeeOther; got != want {
 				t.Fatalf("form status = %d, want %d; body = %s", got, want, form.Body.String())
 			}
-			if got, want := form.Header().Get("Location"), "/?account="+url.QueryEscape(strings.TrimSuffix(strings.TrimPrefix(tt.path, "/api/accounts/"), "/transactions"))+"&error="+tt.code; got != want {
+			wantLocation := "/?account=" + url.QueryEscape(strings.TrimSuffix(strings.TrimPrefix(tt.path, "/api/accounts/"), "/transactions")) + "&error=" + tt.code
+			if tt.code == "amount_malformed" {
+				wantLocation += "&detail=bad"
+			}
+			if got, want := form.Header().Get("Location"), wantLocation; got != want {
 				t.Errorf("form Location = %q, want %q", got, want)
 			}
 
@@ -644,6 +1005,520 @@ func TestRouterNegotiatesCodedPostErrorsByContentType(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestRouterFormPostRejectionRedirectCarriesDetail(t *testing.T) {
+	longAmount := strings.Repeat("1", 33)
+	longDescription := strings.Repeat("x", 141)
+
+	for _, tt := range []struct {
+		name         string
+		accountID    string
+		transactions map[string][]ledger.Transaction
+		body         string
+		code         string
+		detail       string
+	}{
+		{
+			name:      "zero amount",
+			accountID: "acct-1",
+			body:      "amount=0.00&description=Coffee",
+			code:      "amount_zero",
+			detail:    "0.00",
+		},
+		{
+			name:      "malformed amount",
+			accountID: "acct-1",
+			body:      "amount=12.3.4&description=Coffee",
+			code:      "amount_malformed",
+			detail:    "12.3.4",
+		},
+		{
+			name:      "long description",
+			accountID: "acct-1",
+			body:      "amount=1.00&description=" + longDescription,
+			code:      "description_too_long",
+			detail:    "141",
+		},
+		{
+			name:         "negative resulting balance",
+			accountID:    "acct-1",
+			transactions: map[string][]ledger.Transaction{"acct-1": {{Amount: 100}}},
+			body:         "amount=-2.00&description=Coffee",
+			code:         "balance_would_go_negative",
+			detail:       "-200",
+		},
+		{
+			name:         "balance overflow",
+			accountID:    "acct-1",
+			transactions: map[string][]ledger.Transaction{"acct-1": {{Amount: math.MaxInt64}}},
+			body:         "amount=0.01&description=Coffee",
+			code:         "balance_overflow",
+			detail:       "1",
+		},
+		{
+			name:      "unknown account",
+			accountID: "acct &",
+			body:      "amount=1.00&description=Coffee",
+			code:      "account_not_found",
+		},
+		{
+			name:      "empty description",
+			accountID: "acct-1",
+			body:      "amount=1.00&description=",
+			code:      "description_empty",
+		},
+		{
+			name:      "overlong submitted amount is omitted rather than truncated",
+			accountID: "acct &",
+			body:      "amount=" + longAmount + "&description=Coffee",
+			code:      "amount_malformed",
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			store := &routerTestStore{
+				accounts:     []ledger.Account{{ID: "acct-1", Name: "Checking"}},
+				transactions: tt.transactions,
+			}
+			router, err := NewRouter(store, routerClock)
+			if err != nil {
+				t.Fatalf("NewRouter() error = %v, want nil", err)
+			}
+
+			response := postTransaction(router, "/api/accounts/"+url.PathEscape(tt.accountID)+"/transactions", "application/x-www-form-urlencoded", tt.body)
+			if got, want := response.Code, http.StatusSeeOther; got != want {
+				t.Fatalf("form status = %d, want %d; body = %s", got, want, response.Body.String())
+			}
+
+			wantLocation := "/?account=" + url.QueryEscape(tt.accountID) + "&error=" + tt.code
+			if tt.detail != "" {
+				wantLocation += "&detail=" + url.QueryEscape(tt.detail)
+			}
+			if got := response.Header().Get("Location"); got != wantLocation {
+				t.Errorf("form Location = %q, want %q", got, wantLocation)
+			}
+		})
+	}
+}
+
+func TestRouterFormAndJSONRejectionsRenderTheSameMessage(t *testing.T) {
+	longDescription := strings.Repeat("x", 141)
+
+	for _, tt := range []struct {
+		name         string
+		accountID    string
+		transactions map[string][]ledger.Transaction
+		amount       string
+		description  string
+	}{
+		{
+			name:        "malformed amount",
+			accountID:   "acct-1",
+			amount:      "12.3.4",
+			description: "Coffee",
+		},
+		{
+			name:        "zero amount",
+			accountID:   "acct-1",
+			amount:      "0.00",
+			description: "Coffee",
+		},
+		{
+			name:        "description too long",
+			accountID:   "acct-1",
+			amount:      "1.00",
+			description: longDescription,
+		},
+		{
+			name:         "balance would go negative",
+			accountID:    "acct-1",
+			transactions: map[string][]ledger.Transaction{"acct-1": {{Amount: 100}}},
+			amount:       "-2.00",
+			description:  "Coffee",
+		},
+		{
+			name:         "balance overflow",
+			accountID:    "acct-1",
+			transactions: map[string][]ledger.Transaction{"acct-1": {{Amount: math.MaxInt64}}},
+			amount:       "0.01",
+			description:  "Coffee",
+		},
+		{
+			name:        "account not found",
+			accountID:   "acct-nope",
+			amount:      "1.00",
+			description: "Coffee",
+		},
+		{
+			name:        "empty description",
+			accountID:   "acct-1",
+			amount:      "1.00",
+			description: "",
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			store := &routerTestStore{
+				accounts:     []ledger.Account{{ID: "acct-1", Name: "Checking"}},
+				transactions: tt.transactions,
+			}
+			router, err := NewRouter(store, routerClock)
+			if err != nil {
+				t.Fatalf("NewRouter() error = %v, want nil", err)
+			}
+
+			path := "/api/accounts/" + url.PathEscape(tt.accountID) + "/transactions"
+			form := postTransaction(router, path, "application/x-www-form-urlencoded", url.Values{
+				"amount":      {tt.amount},
+				"description": {tt.description},
+			}.Encode())
+			if got, want := form.Code, http.StatusSeeOther; got != want {
+				t.Fatalf("form status = %d, want %d; body = %s", got, want, form.Body.String())
+			}
+
+			page := httptest.NewRecorder()
+			router.ServeHTTP(page, httptest.NewRequest(http.MethodGet, form.Header().Get("Location"), nil))
+			_, formMessage := pageErrorPanel(t, page.Body.String())
+
+			jsonBody, err := json.Marshal(struct {
+				Amount      string `json:"amount"`
+				Description string `json:"description"`
+			}{Amount: tt.amount, Description: tt.description})
+			if err != nil {
+				t.Fatalf("json.Marshal() error = %v", err)
+			}
+			jsonResponse := postTransaction(router, path, "application/json", string(jsonBody))
+			if jsonResponse.Code < http.StatusBadRequest || jsonResponse.Code >= http.StatusInternalServerError {
+				t.Fatalf("JSON status = %d, want a 4xx rejection; body = %s", jsonResponse.Code, jsonResponse.Body.String())
+			}
+			var response errorEnvelope
+			if err := json.Unmarshal(jsonResponse.Body.Bytes(), &response); err != nil {
+				t.Fatalf("JSON response is not JSON: %v; body = %s", err, jsonResponse.Body.String())
+			}
+
+			if got, want := strings.TrimSpace(formMessage), response.Error.Message; got != want {
+				t.Errorf("form page message = %q, want JSON message %q", got, want)
+			}
+		})
+	}
+}
+
+func TestRouterJSONPostRejectionsNameTheirContext(t *testing.T) {
+	store := &routerTestStore{
+		accounts:     []ledger.Account{{ID: "acct-1", Name: "Checking"}},
+		transactions: map[string][]ledger.Transaction{},
+	}
+	router, err := NewRouter(store, routerClock)
+	if err != nil {
+		t.Fatalf("NewRouter() error = %v, want nil", err)
+	}
+
+	description := strings.Repeat("🙂", 187)
+	for _, tt := range []struct {
+		name      string
+		path      string
+		body      string
+		status    int
+		code      string
+		message   string
+		exactBody string
+	}{
+		{
+			name:      "malformed amount names submitted amount",
+			path:      "/api/accounts/acct-1/transactions",
+			body:      `{"amount":"12.3.4","description":"Coffee"}`,
+			status:    http.StatusBadRequest,
+			code:      "amount_malformed",
+			message:   "Amount is malformed. Submitted: 12.3.4.",
+			exactBody: `{"error":{"code":"amount_malformed","message":"Amount is malformed. Submitted: 12.3.4."}}`,
+		},
+		{
+			name:    "zero amount names submitted amount",
+			path:    "/api/accounts/acct-1/transactions",
+			body:    `{"amount":"0.00","description":"Coffee"}`,
+			status:  http.StatusBadRequest,
+			code:    "amount_zero",
+			message: "Amount must not be zero. Submitted: 0.00.",
+		},
+		{
+			name:    "long description names rune count",
+			path:    "/api/accounts/acct-1/transactions",
+			body:    `{"amount":"1.00","description":"` + description + `"}`,
+			status:  http.StatusBadRequest,
+			code:    "description_too_long",
+			message: "Description is too long. Submitted: 187 characters; the limit is 140.",
+		},
+		{
+			name:    "missing account names requested id",
+			path:    "/api/accounts/acct-nope/transactions",
+			body:    `{"amount":"1.00","description":"Coffee"}`,
+			status:  http.StatusNotFound,
+			code:    "account_not_found",
+			message: "Account not found. Requested: acct-nope.",
+		},
+		{
+			name:    "over-long missing account ID degrades to plain message",
+			path:    "/api/accounts/" + strings.Repeat("a", 33) + "/transactions",
+			body:    `{"amount":"1.00","description":"Coffee"}`,
+			status:  http.StatusNotFound,
+			code:    "account_not_found",
+			message: "Account not found.",
+		},
+		{
+			name:    "control-character-bearing missing account ID degrades to plain message",
+			path:    "/api/accounts/acct%0Anope/transactions",
+			body:    `{"amount":"1.00","description":"Coffee"}`,
+			status:  http.StatusNotFound,
+			code:    "account_not_found",
+			message: "Account not found.",
+		},
+		{
+			name:    "blank description remains plain sentence",
+			path:    "/api/accounts/acct-1/transactions",
+			body:    `{"amount":"1.00","description":""}`,
+			status:  http.StatusBadRequest,
+			code:    "description_empty",
+			message: "Description must not be empty.",
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			recorder := postTransaction(router, tt.path, "application/json", tt.body)
+			if got, want := recorder.Code, tt.status; got != want {
+				t.Fatalf("status = %d, want %d; body = %s", got, want, recorder.Body.String())
+			}
+			if tt.exactBody != "" && recorder.Body.String() != tt.exactBody {
+				t.Fatalf("body = %q, want %q", recorder.Body.String(), tt.exactBody)
+			}
+
+			var response errorEnvelope
+			if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+				t.Fatalf("response is not JSON: %v; body = %s", err, recorder.Body.String())
+			}
+			if got, want := response.Error.Code, tt.code; got != want {
+				t.Errorf("error code = %q, want %q", got, want)
+			}
+			if got, want := response.Error.Message, tt.message; got != want {
+				t.Errorf("error message = %q, want %q", got, want)
+			}
+		})
+	}
+}
+
+func TestRouterJSONAmountZeroMessageDegradesTamperedDetails(t *testing.T) {
+	for _, tt := range []struct {
+		name   string
+		detail string
+		want   string
+	}{
+		{
+			name:   "zero amount preserves a zero detail",
+			detail: "0.00",
+			want:   "Amount must not be zero. Submitted: 0.00.",
+		},
+		{
+			name:   "zero amount preserves a negative-zero detail",
+			detail: "-0.00",
+			want:   "Amount must not be zero. Submitted: -0.00.",
+		},
+		{
+			name:   "non-zero amount detail is plain",
+			detail: "5.00",
+			want:   "Amount must not be zero.",
+		},
+		{
+			name:   "non-numeric detail is plain",
+			detail: "not-zero-at-all",
+			want:   "Amount must not be zero.",
+		},
+		{
+			name:   "negative non-zero amount detail is plain",
+			detail: "-12.34",
+			want:   "Amount must not be zero.",
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			request := httptest.NewRequest(http.MethodPost, "/api/accounts/acct-1/transactions", nil)
+			writePostError(recorder, request, true, "acct-1", ledger.ErrAmountZero, messageContext{value: tt.detail})
+
+			if got, want := recorder.Code, http.StatusBadRequest; got != want {
+				t.Fatalf("status = %d, want %d; body = %s", got, want, recorder.Body.String())
+			}
+			var response errorEnvelope
+			if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+				t.Fatalf("response is not JSON: %v; body = %s", err, recorder.Body.String())
+			}
+			if got := response.Error.Message; got != tt.want {
+				t.Errorf("error message = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestRouterJSONPostErrorWithAbsentAccountIDUsesPlainNotFoundMessage(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/api/accounts//transactions", nil)
+
+	writePostError(recorder, request, true, "", ledger.ErrAccountNotFound, messageContext{})
+
+	var response errorEnvelope
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("response is not JSON: %v; body = %s", err, recorder.Body.String())
+	}
+	if got, want := response.Error.Message, "Account not found."; got != want {
+		t.Errorf("error message = %q, want %q", got, want)
+	}
+}
+
+func TestRouterJSONPostEscapesScriptBearingMalformedAmount(t *testing.T) {
+	store := &routerTestStore{
+		accounts:     []ledger.Account{{ID: "acct-1", Name: "Checking"}},
+		transactions: map[string][]ledger.Transaction{},
+	}
+	router, err := NewRouter(store, routerClock)
+	if err != nil {
+		t.Fatalf("NewRouter() error = %v, want nil", err)
+	}
+
+	recorder := postTransaction(router, "/api/accounts/acct-1/transactions", "application/json", `{"amount":"<script>alert(1)</script>","description":"Coffee"}`)
+	if got, want := recorder.Code, http.StatusBadRequest; got != want {
+		t.Fatalf("status = %d, want %d; body = %s", got, want, recorder.Body.String())
+	}
+	if strings.Contains(recorder.Body.String(), "<script") {
+		t.Fatalf("response contains raw script tag: %s", recorder.Body.String())
+	}
+
+	var response map[string]map[string]string
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("response is not JSON: %v; body = %s", err, recorder.Body.String())
+	}
+	if got, want := response["error"], map[string]string{
+		"code":    "amount_malformed",
+		"message": "Amount is malformed. Submitted: <script>alert(1)</script>.",
+	}; !reflect.DeepEqual(got, want) {
+		t.Errorf("error = %#v, want %#v", got, want)
+	}
+}
+
+func TestRouterJSONPostRejectsUnparseableAndMultipleValueBodiesWithPlainError(t *testing.T) {
+	store := &routerTestStore{
+		accounts:     []ledger.Account{{ID: "acct-1", Name: "Checking"}},
+		transactions: map[string][]ledger.Transaction{},
+	}
+	router, err := NewRouter(store, routerClock)
+	if err != nil {
+		t.Fatalf("NewRouter() error = %v, want nil", err)
+	}
+
+	for _, tt := range []struct {
+		name string
+		body string
+	}{
+		{name: "unparseable", body: `{"amount":"1.00"`},
+		{name: "two JSON values", body: `{"amount":"1.00","description":"Coffee"} {"amount":"2.00"}`},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			recorder := postTransaction(router, "/api/accounts/acct-1/transactions", "application/json", tt.body)
+			if got, want := recorder.Code, http.StatusBadRequest; got != want {
+				t.Fatalf("status = %d, want %d; body = %s", got, want, recorder.Body.String())
+			}
+
+			var response map[string]map[string]string
+			if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+				t.Fatalf("response is not JSON: %v; body = %s", err, recorder.Body.String())
+			}
+			if got, want := response["error"], map[string]string{
+				"code":    "amount_malformed",
+				"message": "Amount is malformed.",
+			}; !reflect.DeepEqual(got, want) {
+				t.Errorf("error = %#v, want %#v", got, want)
+			}
+		})
+	}
+}
+
+func TestRouterJSONBalanceRejectionNamesDerivedBalance(t *testing.T) {
+	t.Run("accepted JSON post does not reread the balance for rejection detail", func(t *testing.T) {
+		base := &routerTestStore{
+			accounts:     []ledger.Account{{ID: "acct-1", Name: "Checking"}},
+			transactions: map[string][]ledger.Transaction{"acct-1": {{Amount: 128350}}},
+		}
+		store := &transactionCountingRouterStore{Store: base}
+		router, err := NewRouter(store, routerClock)
+		if err != nil {
+			t.Fatalf("NewRouter() error = %v, want nil", err)
+		}
+
+		accepted := postTransaction(router, "/api/accounts/acct-1/transactions", "application/json", `{"amount":"1.00","description":"Coffee"}`)
+		if got, want := accepted.Code, http.StatusCreated; got != want {
+			t.Fatalf("status = %d, want %d; body = %s", got, want, accepted.Body.String())
+		}
+		if got, want := store.transactionsCalls, 1; got != want {
+			t.Errorf("transaction reads after accepted post = %d, want %d", got, want)
+		}
+	})
+
+	t.Run("balance detail matches the account balance endpoint", func(t *testing.T) {
+		store := &routerTestStore{
+			accounts:     []ledger.Account{{ID: "acct-1", Name: "Checking"}},
+			transactions: map[string][]ledger.Transaction{"acct-1": {{Amount: 128350}}},
+		}
+		router, err := NewRouter(store, routerClock)
+		if err != nil {
+			t.Fatalf("NewRouter() error = %v, want nil", err)
+		}
+
+		rejected := postTransaction(router, "/api/accounts/acct-1/transactions", "application/json", `{"amount":"-2000.00","description":"Rent"}`)
+		if got, want := rejected.Code, http.StatusBadRequest; got != want {
+			t.Fatalf("status = %d, want %d; body = %s", got, want, rejected.Body.String())
+		}
+		var rejection errorEnvelope
+		if err := json.Unmarshal(rejected.Body.Bytes(), &rejection); err != nil {
+			t.Fatalf("rejection is not JSON: %v; body = %s", err, rejected.Body.String())
+		}
+		if got, want := rejection.Error.Code, "balance_would_go_negative"; got != want {
+			t.Errorf("error code = %q, want %q", got, want)
+		}
+		if got, want := rejection.Error.Message, "Balance would go negative. Posting -$2,000.00 against a balance of $1,283.50."; got != want {
+			t.Errorf("error message = %q, want %q", got, want)
+		}
+
+		accounts := httptest.NewRecorder()
+		router.ServeHTTP(accounts, httptest.NewRequest(http.MethodGet, "/api/accounts", nil))
+		if got, want := accounts.Code, http.StatusOK; got != want {
+			t.Fatalf("GET /api/accounts status = %d, want %d; body = %s", got, want, accounts.Body.String())
+		}
+		var response []accountResponse
+		if err := json.Unmarshal(accounts.Body.Bytes(), &response); err != nil {
+			t.Fatalf("accounts response is not JSON: %v; body = %s", err, accounts.Body.String())
+		}
+		if got, want := response[0].BalanceCents, int64(128350); got != want {
+			t.Errorf("GET /api/accounts balance_cents = %d, want %d", got, want)
+		}
+	})
+
+	t.Run("a balance read failure keeps the rejection message plain", func(t *testing.T) {
+		base := &routerTestStore{
+			accounts:     []ledger.Account{{ID: "acct-1", Name: "Checking"}},
+			transactions: map[string][]ledger.Transaction{"acct-1": {{Amount: 128350}}},
+		}
+		store := &balanceReadFailsAfterPostingStore{Store: base, err: errors.New("balance read unavailable")}
+		router, err := NewRouter(store, routerClock)
+		if err != nil {
+			t.Fatalf("NewRouter() error = %v, want nil", err)
+		}
+
+		rejected := postTransaction(router, "/api/accounts/acct-1/transactions", "application/json", `{"amount":"-2000.00","description":"Rent"}`)
+		if got, want := rejected.Code, http.StatusBadRequest; got != want {
+			t.Fatalf("status = %d, want %d; body = %s", got, want, rejected.Body.String())
+		}
+		var rejection errorEnvelope
+		if err := json.Unmarshal(rejected.Body.Bytes(), &rejection); err != nil {
+			t.Fatalf("rejection is not JSON: %v; body = %s", err, rejected.Body.String())
+		}
+		if got, want := rejection.Error.Message, "Balance would go negative."; got != want {
+			t.Errorf("error message = %q, want %q", got, want)
+		}
+	})
 }
 
 func TestRouterMapsBalanceOverflowAtBothPostingBoundaries(t *testing.T) {
@@ -687,7 +1562,7 @@ func TestRouterMapsBalanceOverflowAtBothPostingBoundaries(t *testing.T) {
 		if got, want := rejected.Code, http.StatusSeeOther; got != want {
 			t.Fatalf("rejected form status = %d, want %d; body = %s", got, want, rejected.Body.String())
 		}
-		if got, want := rejected.Header().Get("Location"), "/?account=acct-1&error=balance_overflow"; got != want {
+		if got, want := rejected.Header().Get("Location"), "/?account=acct-1&error=balance_overflow&detail=1"; got != want {
 			t.Errorf("rejected form Location = %q, want %q", got, want)
 		}
 		if output := logs.String(); !strings.Contains(output, ledger.ErrBalanceOverflow.Error()) {
@@ -745,7 +1620,7 @@ func TestRouterMapsBalanceOverflowAtBothPostingBoundaries(t *testing.T) {
 		if got, want := response.Error.Code, "balance_overflow"; got != want {
 			t.Errorf("error code = %q, want %q", got, want)
 		}
-		if got, want := response.Error.Message, "Balance would overflow."; got != want {
+		if got, want := response.Error.Message, "Balance would overflow. Posting $0.01 against a balance of $92,233,720,368,547,758.07."; got != want {
 			t.Errorf("error message = %q, want %q", got, want)
 		}
 		countAfter, err := store.CountTransactions()
@@ -862,7 +1737,7 @@ func TestRouterRejectsInvalidAmountSignsWithoutAppending(t *testing.T) {
 			if got, want := formResponse.Code, http.StatusSeeOther; got != want {
 				t.Errorf("form status = %d, want %d; body = %s", got, want, formResponse.Body.String())
 			}
-			if got, want := formResponse.Header().Get("Location"), "/?account=acct-1&error=amount_malformed"; got != want {
+			if got, want := formResponse.Header().Get("Location"), "/?account=acct-1&error=amount_malformed&detail="+url.QueryEscape(amount); got != want {
 				t.Errorf("form Location = %q, want %q", got, want)
 			}
 
@@ -872,6 +1747,84 @@ func TestRouterRejectsInvalidAmountSignsWithoutAppending(t *testing.T) {
 			}
 			if got, want := countAfter, countBefore; got != want {
 				t.Errorf("transactions after rejected posts = %d, want %d", got, want)
+			}
+		})
+	}
+}
+
+func TestRouterEnrichesMalformedAmountMessagesConsistentlyForPageAndJSON(t *testing.T) {
+	for _, tt := range []struct {
+		name     string
+		amount   string
+		wantPage string
+		wantJSON string
+	}{
+		{
+			name:     "multiple decimal points",
+			amount:   "12.3.4",
+			wantPage: "Amount is malformed. Submitted: 12.3.4.",
+			wantJSON: "Amount is malformed. Submitted: 12.3.4.",
+		},
+		{
+			name:     "script-bearing text",
+			amount:   "<script>alert(1)</script>",
+			wantPage: "Amount is malformed. Submitted: &lt;script&gt;alert(1)&lt;/script&gt;.",
+			wantJSON: "Amount is malformed. Submitted: <script>alert(1)</script>.",
+		},
+		{
+			name:     "space",
+			amount:   " ",
+			wantPage: "Amount is malformed.",
+			wantJSON: "Amount is malformed.",
+		},
+		{
+			name:     "non-breaking space",
+			amount:   "\u00a0",
+			wantPage: "Amount is malformed.",
+			wantJSON: "Amount is malformed.",
+		},
+		{
+			name:     "format character",
+			amount:   "\u200d",
+			wantPage: "Amount is malformed.",
+			wantJSON: "Amount is malformed.",
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			store := &routerTestStore{
+				accounts:     []ledger.Account{{ID: "acct-1", Name: "Checking"}},
+				transactions: map[string][]ledger.Transaction{"acct-1": {{Amount: 10000}}},
+			}
+			router, err := NewRouter(store, routerClock)
+			if err != nil {
+				t.Fatalf("NewRouter() error = %v, want nil", err)
+			}
+
+			form := postTransaction(router, "/api/accounts/acct-1/transactions", "application/x-www-form-urlencoded", url.Values{"amount": {tt.amount}, "description": {"Coffee"}}.Encode())
+			if got, want := form.Code, http.StatusSeeOther; got != want {
+				t.Fatalf("form status = %d, want %d; body = %s", got, want, form.Body.String())
+			}
+			page := httptest.NewRecorder()
+			router.ServeHTTP(page, httptest.NewRequest(http.MethodGet, form.Header().Get("Location"), nil))
+			_, panel := pageErrorPanel(t, page.Body.String())
+			if got := strings.TrimSpace(panel); got != tt.wantPage {
+				t.Errorf("page error panel = %q, want %q", got, tt.wantPage)
+			}
+
+			body, err := json.Marshal(map[string]string{"amount": tt.amount, "description": "Coffee"})
+			if err != nil {
+				t.Fatalf("json.Marshal() error = %v", err)
+			}
+			jsonResponse := postTransaction(router, "/api/accounts/acct-1/transactions", "application/json", string(body))
+			if got, want := jsonResponse.Code, http.StatusBadRequest; got != want {
+				t.Fatalf("JSON status = %d, want %d; body = %s", got, want, jsonResponse.Body.String())
+			}
+			var response errorEnvelope
+			if err := json.Unmarshal(jsonResponse.Body.Bytes(), &response); err != nil {
+				t.Fatalf("JSON response is not JSON: %v; body = %s", err, jsonResponse.Body.String())
+			}
+			if got := response.Error.Message; got != tt.wantJSON {
+				t.Errorf("JSON error message = %q, want %q", got, tt.wantJSON)
 			}
 		})
 	}
@@ -928,6 +1881,221 @@ func TestRouterRejectsWrongMethodsAndUnknownPathsWithoutABody(t *testing.T) {
 
 	if got := len(store.transactions["acct-1"]); got != transactionsBefore {
 		t.Errorf("stored transaction count = %d, want unchanged %d", got, transactionsBefore)
+	}
+}
+
+func TestNewRouterDeclaresExactlyFiveRoutes(t *testing.T) {
+	_, testFile, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("runtime.Caller() failed")
+	}
+	routerFile := strings.TrimSuffix(testFile, "router_test.go") + "router.go"
+	parsed, err := parser.ParseFile(token.NewFileSet(), routerFile, nil, 0)
+	if err != nil {
+		t.Fatalf("parser.ParseFile(%q) error = %v", routerFile, err)
+	}
+
+	var registrations int
+	for _, declaration := range parsed.Decls {
+		function, ok := declaration.(*ast.FuncDecl)
+		if !ok || function.Name.Name != "NewRouter" {
+			continue
+		}
+		ast.Inspect(function.Body, func(node ast.Node) bool {
+			call, ok := node.(*ast.CallExpr)
+			if !ok {
+				return true
+			}
+			selector, ok := call.Fun.(*ast.SelectorExpr)
+			if !ok || (selector.Sel.Name != "Handle" && selector.Sel.Name != "HandleFunc") {
+				return true
+			}
+			receiver, ok := selector.X.(*ast.Ident)
+			if ok && receiver.Name == "mux" {
+				registrations++
+			}
+			return true
+		})
+	}
+
+	if got, want := registrations, 5; got != want {
+		t.Errorf("NewRouter() route registrations = %d, want %d", got, want)
+	}
+}
+
+func TestRouterFrozenRejectionsDoNotRecordTransactions(t *testing.T) {
+	tests := []struct {
+		name         string
+		accountID    string
+		amount       string
+		description  string
+		transactions map[string][]ledger.Transaction
+		code         string
+		jsonStatus   int
+	}{
+		{
+			name:        "account_not_found",
+			accountID:   "acct-nope",
+			amount:      "1.00",
+			description: "Coffee",
+			transactions: map[string][]ledger.Transaction{
+				"acct-1": {{Amount: 10000}},
+			},
+			code:       "account_not_found",
+			jsonStatus: http.StatusNotFound,
+		},
+		{
+			name:        "amount_zero",
+			accountID:   "acct-1",
+			amount:      "0",
+			description: "Coffee",
+			transactions: map[string][]ledger.Transaction{
+				"acct-1": {{Amount: 10000}},
+			},
+			code:       "amount_zero",
+			jsonStatus: http.StatusBadRequest,
+		},
+		{
+			name:        "description_empty",
+			accountID:   "acct-1",
+			amount:      "1.00",
+			description: "",
+			transactions: map[string][]ledger.Transaction{
+				"acct-1": {{Amount: 10000}},
+			},
+			code:       "description_empty",
+			jsonStatus: http.StatusBadRequest,
+		},
+		{
+			name:        "description_too_long",
+			accountID:   "acct-1",
+			amount:      "1.00",
+			description: strings.Repeat("x", 141),
+			transactions: map[string][]ledger.Transaction{
+				"acct-1": {{Amount: 10000}},
+			},
+			code:       "description_too_long",
+			jsonStatus: http.StatusBadRequest,
+		},
+		{
+			name:        "amount_malformed",
+			accountID:   "acct-1",
+			amount:      "12.3.4",
+			description: "Coffee",
+			transactions: map[string][]ledger.Transaction{
+				"acct-1": {{Amount: 10000}},
+			},
+			code:       "amount_malformed",
+			jsonStatus: http.StatusBadRequest,
+		},
+		{
+			name:        "balance_would_go_negative",
+			accountID:   "acct-1",
+			amount:      "-200.00",
+			description: "Coffee",
+			transactions: map[string][]ledger.Transaction{
+				"acct-1": {{Amount: 10000}},
+			},
+			code:       "balance_would_go_negative",
+			jsonStatus: http.StatusBadRequest,
+		},
+		{
+			name:        "balance_overflow",
+			accountID:   "acct-1",
+			amount:      "0.01",
+			description: "Coffee",
+			transactions: map[string][]ledger.Transaction{
+				"acct-1": {{Amount: math.MaxInt64}},
+			},
+			code:       "balance_overflow",
+			jsonStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			for _, branch := range []struct {
+				name        string
+				contentType string
+				body        func() string
+				wantStatus  int
+			}{
+				{
+					name:        "form",
+					contentType: "application/x-www-form-urlencoded",
+					body: func() string {
+						return url.Values{"amount": {tt.amount}, "description": {tt.description}}.Encode()
+					},
+					wantStatus: http.StatusSeeOther,
+				},
+				{
+					name:        "json",
+					contentType: "application/json",
+					body: func() string {
+						body, err := json.Marshal(map[string]string{"amount": tt.amount, "description": tt.description})
+						if err != nil {
+							t.Fatalf("json.Marshal() error = %v", err)
+						}
+						return string(body)
+					},
+					wantStatus: tt.jsonStatus,
+				},
+			} {
+				t.Run(branch.name, func(t *testing.T) {
+					store := &routerTestStore{
+						accounts:     []ledger.Account{{ID: "acct-1", Name: "Checking"}},
+						transactions: tt.transactions,
+					}
+					router, err := NewRouter(store, routerClock)
+					if err != nil {
+						t.Fatalf("NewRouter() error = %v, want nil", err)
+					}
+
+					countBefore, err := store.CountTransactions()
+					if err != nil {
+						t.Fatalf("CountTransactions() error = %v", err)
+					}
+					balanceBefore, err := ledger.Balance(store, "acct-1")
+					if err != nil {
+						t.Fatalf("Balance() error = %v", err)
+					}
+
+					path := "/api/accounts/" + url.PathEscape(tt.accountID) + "/transactions"
+					response := postTransaction(router, path, branch.contentType, branch.body())
+					if got, want := response.Code, branch.wantStatus; got != want {
+						t.Fatalf("status = %d, want %d; body = %s", got, want, response.Body.String())
+					}
+					if branch.name == "form" {
+						if got := response.Header().Get("Location"); !strings.Contains(got, "error="+tt.code) {
+							t.Errorf("Location = %q, want error code %q", got, tt.code)
+						}
+					} else {
+						var envelope errorEnvelope
+						if err := json.Unmarshal(response.Body.Bytes(), &envelope); err != nil {
+							t.Fatalf("json.Unmarshal() error = %v; body = %s", err, response.Body.String())
+						}
+						if got, want := envelope.Error.Code, tt.code; got != want {
+							t.Errorf("error code = %q, want %q", got, want)
+						}
+					}
+
+					countAfter, err := store.CountTransactions()
+					if err != nil {
+						t.Fatalf("CountTransactions() error = %v", err)
+					}
+					balanceAfter, err := ledger.Balance(store, "acct-1")
+					if err != nil {
+						t.Fatalf("Balance() error = %v", err)
+					}
+					if got, want := countAfter, countBefore; got != want {
+						t.Errorf("transaction count after rejection = %d, want %d", got, want)
+					}
+					if got, want := balanceAfter, balanceBefore; got != want {
+						t.Errorf("derived balance after rejection = %d, want %d", got, want)
+					}
+				})
+			}
+		})
 	}
 }
 
