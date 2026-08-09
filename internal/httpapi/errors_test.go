@@ -20,37 +20,37 @@ func TestCodeForMapsWrappedDomainErrors(t *testing.T) {
 		{
 			name: "account not found",
 			err:  fmt.Errorf("lookup account: %w", ledger.ErrAccountNotFound),
-			want: codedError{status: http.StatusNotFound, code: "account_not_found", message: "Account not found."},
+			want: codedError{status: http.StatusNotFound, code: "account_not_found"},
 		},
 		{
 			name: "amount zero",
 			err:  fmt.Errorf("validate amount: %w", ledger.ErrAmountZero),
-			want: codedError{status: http.StatusBadRequest, code: "amount_zero", message: "Amount must not be zero."},
+			want: codedError{status: http.StatusBadRequest, code: "amount_zero"},
 		},
 		{
 			name: "description empty",
 			err:  fmt.Errorf("validate description: %w", ledger.ErrDescriptionEmpty),
-			want: codedError{status: http.StatusBadRequest, code: "description_empty", message: "Description must not be empty."},
+			want: codedError{status: http.StatusBadRequest, code: "description_empty"},
 		},
 		{
 			name: "description too long",
 			err:  fmt.Errorf("validate description: %w", ledger.ErrDescriptionTooLong),
-			want: codedError{status: http.StatusBadRequest, code: "description_too_long", message: "Description is too long."},
+			want: codedError{status: http.StatusBadRequest, code: "description_too_long"},
 		},
 		{
 			name: "amount malformed",
 			err:  fmt.Errorf("parse amount: %w", ledger.ErrAmountMalformed),
-			want: codedError{status: http.StatusBadRequest, code: "amount_malformed", message: "Amount is malformed."},
+			want: codedError{status: http.StatusBadRequest, code: "amount_malformed"},
 		},
 		{
 			name: "balance would go negative",
 			err:  fmt.Errorf("post transaction: %w", ledger.ErrBalanceWouldGoNegative),
-			want: codedError{status: http.StatusBadRequest, code: "balance_would_go_negative", message: "Balance would go negative."},
+			want: codedError{status: http.StatusBadRequest, code: "balance_would_go_negative"},
 		},
 		{
 			name: "balance overflow",
 			err:  fmt.Errorf("post transaction: %w", ledger.ErrBalanceOverflow),
-			want: codedError{status: http.StatusBadRequest, code: "balance_overflow", message: "Balance would overflow."},
+			want: codedError{status: http.StatusBadRequest, code: "balance_overflow"},
 		},
 	}
 
@@ -75,8 +75,12 @@ func TestWriteJSONErrorEncodesExactErrorEnvelope(t *testing.T) {
 	if got, want := recorder.Header().Get("Content-Type"), "application/json; charset=utf-8"; got != want {
 		t.Fatalf("Content-Type = %q, want %q", got, want)
 	}
-	if got, want := recorder.Body.String(), `{"error":{"code":"amount_zero","message":"Amount must not be zero."}}`; got != want {
-		t.Fatalf("body = %q, want %q", got, want)
+	var response errorEnvelope
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("response is not JSON: %v; body = %s", err, recorder.Body.String())
+	}
+	if got, want := response.Error.Message, messageFor("amount_zero", messageContext{}); got != want {
+		t.Fatalf("message = %q, want messageFor = %q", got, want)
 	}
 }
 
@@ -98,8 +102,11 @@ func TestWriteJSONErrorUsesStableGenericEnvelopeForUnmappedErrors(t *testing.T) 
 		if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
 			t.Errorf("response is not JSON: %v; body = %s", err, recorder.Body.String())
 		}
-		if response.Error.Code == "" || response.Error.Message == "" {
-			t.Errorf("generic response = %#v, want non-empty stable code and message", response)
+		if got, want := response.Error.Code, "internal_error"; got != want {
+			t.Errorf("code = %q, want %q", got, want)
+		}
+		if got, want := response.Error.Message, "Unable to post transaction."; got != want {
+			t.Errorf("message = %q, want %q", got, want)
 		}
 	}
 	if got, want := first.Body.String(), second.Body.String(); got != want {
