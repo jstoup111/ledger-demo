@@ -660,7 +660,13 @@ value constructed and passed inward)
 3. Uncomment the reserved block in `web/style.css` — `.balance` at `4rem`/700, `.error` with
    `#fdecea` and a 6px `#b3261e` left border, tables with `border-collapse: collapse`. Values come
    from the styleguide unchanged.
-4. Set the `rem` basis explicitly so `1rem` is 20px, e.g. an `html { font-size: 20px }` rule.
+4. Write a failing stylesheet regression assertion in `web/web_test.go` that `html` **or** `:root`
+   declares `font-size: 20px` — the assertion must target the root element specifically, because a
+   `20px` rule on `body` does not change what `rem` resolves against and is exactly the state that
+   shipped unnoticed. Verify it fails (RED).
+5. Set the root `rem` basis in `web/style.css` — `html { font-size: 20px }` (or `:root`) — so
+   `table { font-size: 1rem }` is 20px, `h1` (`2rem`) is 40px, and `.balance` (`4rem`) is 80px, the
+   scale the styleguide's "Body 20px (`1rem` base)" line intends. Verify GREEN.
 
 > **Amended 2026-08-09 by operator decision:** step 4 added. `manual_test` found no `html`
 > `font-size` rule, so `1rem` resolves against the browser default of 16px, not the `20px` on `body`
@@ -731,8 +737,22 @@ value constructed and passed inward)
 4. Verify test passes (GREEN)
 5. Commit: "cmd/server: wire the store and clock into serve and seed"
 
-**Files:** `cmd/server/main.go`, `cmd/server/main_test.go`
+**Files:** `cmd/server/main.go`, `cmd/server/main_test.go`, `.env.example`, `CLAUDE.md`
 **Wired-into:** `cmd/server/main.go#main` (the process entry point dispatching `serve` and `seed`)
+
+> **Amended 2026-08-09 by operator review — build_review gaps `test:build-review-env-scope` and
+> `test:build-review-doc-scope`:** `.env.example` and `CLAUDE.md` added to `Files:`. Wiring `serve`
+> settled how the port and database path are actually supplied, and both files documented the
+> superseded contract — `.env.example:10-13` described per-worktree override files and
+> `CLAUDE.md:102-112` described a `.env.local`, when `make` loads neither and the supported form is an
+> invocation-time override (`make dev PORT=<port>`, with `LEDGER_DB_PATH` alongside it when a
+> worktree needs a distinct database). `build_review` correctly flagged both as changed by a diff no
+> `Files:` line assigned.
+>
+> These belong to this task rather than a separate documentation task: both files document *this
+> task's* contract, and the plan skill's documentation boundary forbids splitting documentation that
+> accompanies functional work into its own task. Scoping them here describes the diff without
+> creating one.
 **Dependencies:** 29, 24
 
 ### Task 31: File-backed reset determinism
