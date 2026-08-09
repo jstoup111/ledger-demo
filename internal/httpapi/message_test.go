@@ -68,3 +68,38 @@ func TestCharacterCountCarriedValue(t *testing.T) {
 		})
 	}
 }
+
+func TestIntegerCentsCarriedValue(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  bool
+	}{
+		{name: "one cent", input: "1", want: true},
+		{name: "negative one cent", input: "-1", want: true},
+		{name: "two thousand dollars", input: "200000", want: true},
+		{name: "negative two thousand dollars", input: "-200000", want: true},
+		{name: "maximum int64", input: "9223372036854775807", want: true},
+		{name: "minimum int64", input: "-9223372036854775808", want: true},
+		{name: "empty", input: "", want: false},
+		{name: "letters", input: "abc", want: false},
+		{name: "decimal", input: "12.50", want: false},
+		{name: "exponent", input: "1e9", want: false},
+		{name: "plus sign", input: "+5", want: false},
+		{name: "minus sign only", input: "-", want: false},
+		{name: "above maximum int64", input: "9223372036854775808", want: false},
+		{name: "forty digits", input: strings.Repeat("1", 40), want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, ok := integerCentsCarriedValue(tt.input)
+			if ok != tt.want {
+				t.Fatalf("integerCentsCarriedValue(%q) ok = %t, want %t", tt.input, ok, tt.want)
+			}
+			if ok && got != tt.input {
+				t.Errorf("integerCentsCarriedValue(%q) = %q, want original value", tt.input, got)
+			}
+		})
+	}
+}

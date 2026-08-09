@@ -38,3 +38,29 @@ func characterCountCarriedValue(value string) (string, bool) {
 
 	return value, true
 }
+
+func integerCentsCarriedValue(value string) (string, bool) {
+	if value == "" || len(value) > 20 {
+		return "", false
+	}
+
+	digits := value
+	if value[0] == '-' {
+		if len(value) == 1 {
+			return "", false
+		}
+		digits = value[1:]
+	}
+
+	for _, r := range digits {
+		if r < '0' || r > '9' {
+			return "", false
+		}
+	}
+
+	if _, err := strconv.ParseInt(value, 10, 64); err != nil {
+		return "", false
+	}
+
+	return value, true
+}
