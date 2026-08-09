@@ -938,6 +938,107 @@ func TestRouterFormPostRejectionRedirectCarriesDetail(t *testing.T) {
 	}
 }
 
+func TestRouterFormAndJSONRejectionsRenderTheSameMessage(t *testing.T) {
+	longDescription := strings.Repeat("x", 141)
+
+	for _, tt := range []struct {
+		name         string
+		accountID    string
+		transactions map[string][]ledger.Transaction
+		amount       string
+		description  string
+	}{
+		{
+			name:        "malformed amount",
+			accountID:   "acct-1",
+			amount:      "12.3.4",
+			description: "Coffee",
+		},
+		{
+			name:        "zero amount",
+			accountID:   "acct-1",
+			amount:      "0.00",
+			description: "Coffee",
+		},
+		{
+			name:        "description too long",
+			accountID:   "acct-1",
+			amount:      "1.00",
+			description: longDescription,
+		},
+		{
+			name:         "balance would go negative",
+			accountID:    "acct-1",
+			transactions: map[string][]ledger.Transaction{"acct-1": {{Amount: 100}}},
+			amount:       "-2.00",
+			description:  "Coffee",
+		},
+		{
+			name:         "balance overflow",
+			accountID:    "acct-1",
+			transactions: map[string][]ledger.Transaction{"acct-1": {{Amount: math.MaxInt64}}},
+			amount:       "0.01",
+			description:  "Coffee",
+		},
+		{
+			name:        "account not found",
+			accountID:   "acct-nope",
+			amount:      "1.00",
+			description: "Coffee",
+		},
+		{
+			name:        "empty description",
+			accountID:   "acct-1",
+			amount:      "1.00",
+			description: "",
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			store := &routerTestStore{
+				accounts:     []ledger.Account{{ID: "acct-1", Name: "Checking"}},
+				transactions: tt.transactions,
+			}
+			router, err := NewRouter(store, routerClock)
+			if err != nil {
+				t.Fatalf("NewRouter() error = %v, want nil", err)
+			}
+
+			path := "/api/accounts/" + url.PathEscape(tt.accountID) + "/transactions"
+			form := postTransaction(router, path, "application/x-www-form-urlencoded", url.Values{
+				"amount":      {tt.amount},
+				"description": {tt.description},
+			}.Encode())
+			if got, want := form.Code, http.StatusSeeOther; got != want {
+				t.Fatalf("form status = %d, want %d; body = %s", got, want, form.Body.String())
+			}
+
+			page := httptest.NewRecorder()
+			router.ServeHTTP(page, httptest.NewRequest(http.MethodGet, form.Header().Get("Location"), nil))
+			_, formMessage := pageErrorPanel(t, page.Body.String())
+
+			jsonBody, err := json.Marshal(struct {
+				Amount      string `json:"amount"`
+				Description string `json:"description"`
+			}{Amount: tt.amount, Description: tt.description})
+			if err != nil {
+				t.Fatalf("json.Marshal() error = %v", err)
+			}
+			jsonResponse := postTransaction(router, path, "application/json", string(jsonBody))
+			if jsonResponse.Code < http.StatusBadRequest || jsonResponse.Code >= http.StatusInternalServerError {
+				t.Fatalf("JSON status = %d, want a 4xx rejection; body = %s", jsonResponse.Code, jsonResponse.Body.String())
+			}
+			var response errorEnvelope
+			if err := json.Unmarshal(jsonResponse.Body.Bytes(), &response); err != nil {
+				t.Fatalf("JSON response is not JSON: %v; body = %s", err, jsonResponse.Body.String())
+			}
+
+			if got, want := strings.TrimSpace(formMessage), response.Error.Message; got != want {
+				t.Errorf("form page message = %q, want JSON message %q", got, want)
+			}
+		})
+	}
+}
+
 func TestRouterJSONPostRejectionsNameTheirContext(t *testing.T) {
 	store := &routerTestStore{
 		accounts:     []ledger.Account{{ID: "acct-1", Name: "Checking"}},
