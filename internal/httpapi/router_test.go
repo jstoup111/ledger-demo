@@ -609,6 +609,54 @@ func TestRouterRejectsMalformedJSONAmountsWithoutAppending(t *testing.T) {
 	})
 }
 
+func TestRouterRejectsInvalidAmountSignsWithoutAppending(t *testing.T) {
+	store := &routerTestStore{
+		accounts:     []ledger.Account{{ID: "acct-1", Name: "Checking"}},
+		transactions: map[string][]ledger.Transaction{"acct-1": {{Amount: 10000}}},
+	}
+	router, err := NewRouter(store, routerClock)
+	if err != nil {
+		t.Fatalf("NewRouter() error = %v, want nil", err)
+	}
+
+	for _, amount := range []string{"+5", "1.+5", "25.+5"} {
+		t.Run(amount, func(t *testing.T) {
+			countBefore, err := store.CountTransactions()
+			if err != nil {
+				t.Fatalf("CountTransactions() error = %v", err)
+			}
+
+			jsonResponse := postTransaction(router, "/api/accounts/acct-1/transactions", "application/json", `{"amount":"`+amount+`","description":"Coffee"}`)
+			if got, want := jsonResponse.Code, http.StatusBadRequest; got != want {
+				t.Errorf("JSON status = %d, want %d; body = %s", got, want, jsonResponse.Body.String())
+			}
+			var response errorEnvelope
+			if err := json.Unmarshal(jsonResponse.Body.Bytes(), &response); err != nil {
+				t.Fatalf("JSON response is not JSON: %v; body = %s", err, jsonResponse.Body.String())
+			}
+			if got, want := response.Error.Code, "amount_malformed"; got != want {
+				t.Errorf("JSON error code = %q, want %q", got, want)
+			}
+
+			formResponse := postTransaction(router, "/api/accounts/acct-1/transactions", "application/x-www-form-urlencoded", "amount="+url.QueryEscape(amount)+"&description=Coffee")
+			if got, want := formResponse.Code, http.StatusSeeOther; got != want {
+				t.Errorf("form status = %d, want %d; body = %s", got, want, formResponse.Body.String())
+			}
+			if got, want := formResponse.Header().Get("Location"), "/?account=acct-1&error=amount_malformed"; got != want {
+				t.Errorf("form Location = %q, want %q", got, want)
+			}
+
+			countAfter, err := store.CountTransactions()
+			if err != nil {
+				t.Fatalf("CountTransactions() error = %v", err)
+			}
+			if got, want := countAfter, countBefore; got != want {
+				t.Errorf("transactions after rejected posts = %d, want %d", got, want)
+			}
+		})
+	}
+}
+
 func postTransaction(router http.Handler, path, contentType, body string) *httptest.ResponseRecorder {
 	rec := httptest.NewRecorder()
 	req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(body))
