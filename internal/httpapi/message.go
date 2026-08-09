@@ -18,6 +18,9 @@ func messageFor(identifier string, context messageContext) string {
 	case "":
 		return ""
 	case "account_not_found":
+		if context.accountID != "" {
+			return "Account not found. Requested: " + context.accountID + "."
+		}
 		return "Account not found."
 	case "amount_zero":
 		return "Amount must not be zero."

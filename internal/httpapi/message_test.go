@@ -38,6 +38,38 @@ func TestMessageForReturnsPlainSentencesAndGenericFallback(t *testing.T) {
 	}
 }
 
+func TestMessageForIncludesRequestedAccountOnlyForAccountNotFound(t *testing.T) {
+	tests := []struct {
+		name    string
+		context messageContext
+		want    string
+	}{
+		{
+			name:    "includes requested account ID",
+			context: messageContext{accountID: "acct-9"},
+			want:    "Account not found. Requested: acct-9.",
+		},
+		{
+			name:    "omits empty requested account ID",
+			context: messageContext{},
+			want:    "Account not found.",
+		},
+		{
+			name:    "ignores carried value",
+			context: messageContext{value: "ignored"},
+			want:    "Account not found.",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := messageFor("account_not_found", tt.context); got != tt.want {
+				t.Errorf("messageFor(account_not_found, %+v) = %q, want %q", tt.context, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestFreeTextCarriedValue(t *testing.T) {
 	tests := []struct {
 		name  string
