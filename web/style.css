@@ -1,5 +1,9 @@
 /* Projector-legible. Light theme only: no dark mode, no breakpoints, no animation. */
 
+html {
+  font-size: 20px;
+}
+
 body {
   margin: 0;
   padding: 2rem;

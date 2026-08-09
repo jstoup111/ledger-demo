@@ -15,6 +15,10 @@ func TestEmbeddedStylesheetActivatesBalanceErrorAndTableRules(t *testing.T) {
 
 	rawCSS := string(stylesheet)
 	activeCSS := regexp.MustCompile(`/\*[\s\S]*?\*/`).ReplaceAllString(rawCSS, "")
+	rootFontSize := regexp.MustCompile(`(?ms)^\s*(?:html|:root)\s*\{[^}]*font-size:\s*20px;[^}]*\}`)
+	if !rootFontSize.MatchString(activeCSS) {
+		t.Error("active stylesheet must declare font-size: 20px on html or :root")
+	}
 
 	for name, rule := range map[string]*regexp.Regexp{
 		"balance": regexp.MustCompile(`(?s)\.balance\s*\{[^}]*font-size:\s*4rem;[^}]*font-weight:\s*700;[^}]*\}`),
