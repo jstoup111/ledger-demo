@@ -5,7 +5,7 @@ import (
 	"html/template"
 	"net/http"
 
-	"github.com/teamupstart/ledger-demo/web"
+	"github.com/jstoup111/ledger-demo/web"
 )
 
 // NewRouter builds the HTTP handler using the stdlib ServeMux method/pattern

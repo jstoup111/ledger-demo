@@ -1,4 +1,4 @@
-module github.com/teamupstart/ledger-demo
+module github.com/jstoup111/ledger-demo
 
 go 1.26.5
 
