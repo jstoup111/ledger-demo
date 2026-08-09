@@ -62,6 +62,60 @@ rejection because its subject is that a URL code becomes a visible panel.
 None beyond the existing checkout. `modernc.org/sqlite` is already pinned in `go.mod`/`go.sum` by the
 blank import in `internal/store/sqlite.go`, deliberately so the build needs no network.
 
+> **Amended 2026-08-09 by operator review — build_review scope gap `test:build-review-config`:** the
+> assertion above is retained, and was too narrow. This feature does require one harness-configuration
+> change, scoped by `Task harness-config` below. `build_review` correctly flagged
+> `.ai-conductor/config.yml` as modified with no plan task describing it.
+
+### Task harness-config: Declare the aggregate test command and the acceptance-spec location
+**Story:** Story 6 / FR-15 and FR-16 (the reset/run commands the demo is operated by)
+**Type:** infrastructure
+
+Recorded after the fact by operator review, not authored ahead of BUILD. It scopes a change BUILD had
+already made out of plan; it is written here so the diff is described by the plan rather than to
+request new work.
+
+**Steps:**
+1. Declare `test_suite.command` so the pre-SHIP aggregate gate has one project-owned command
+   composing the whole authoritative suite. Without it that gate returns
+   `missing_config: Project config must declare test_suite` and the SHIP tail cannot complete.
+2. Record where acceptance specs live, so the `acceptance_specs` gate resolves them. The gate's
+   built-in globs are Ruby/JS-shaped and match `test/acceptance/**/*` but not a top-level
+   `acceptance/`, which cost this feature two provider attempts before the specs were relocated.
+3. Verification is limited to harness configuration: `conduct-ts` loads the config without error and
+   the two gates above resolve. No product behavior is touched and no Go file changes.
+
+**Files:** `.ai-conductor/config.yml`
+**Wired-into:** none (no new production surface — consumed by the engine's own gates, not by this
+project's code)
+**Verify-only:** yes
+**Dependencies:** none
+
+Marked verify-only because this task records a change BUILD had already committed, so it will never
+produce a commit carrying its own `Task:` trailer. Without the marker, `build_review`'s advisory
+work-happened floor flags it as a gap on every run (observed 2026-08-09 04:57:39).
+
+## BUILD-entry artifacts not authored by any plan task
+
+> **Added 2026-08-09 by operator review — build_review scope gap `test:build-review-acceptance`:**
+> `build_review` correctly found ~1,180 lines in the two files below present in no plan task's
+> `Files:` list.
+
+| Artifact | Owner | Constrains |
+|---|---|---|
+| `test/acceptance/ledger_acceptance_test.go` | `/writing-system-tests` (BUILD entry, before implementation) | Stories 1–6; the RED targets for Tasks 10, 18, 19–28 |
+| `test/acceptance/harness_test.go` | `/writing-system-tests` (BUILD entry, before implementation) | Shared fixture for the above: builds `./cmd/server`, runs `seed`/`serve` on a free port |
+
+These are **not** work any implementation task performs, and ownership is not reassigned to one. They
+are the acceptance-spec artifacts the `acceptance_specs` step authors at BUILD entry, and they are
+recorded here only so the plan describes the diff. Regenerating them, or changing product behavior to
+suit them, is explicitly out of scope for this remediation.
+
+Two known defects in `harness_test.go` are deliberately **not** fixed here, to avoid adding further
+unplanned acceptance-spec diff to a scope finding: `waitReady` busy-waits on `net.Dial` with no yield
+for up to 15s per server start, and `startServer`'s child survives an interrupted `go test` (it
+stranded a server on port 8080 for 90 minutes). Both are queued for a separate pass.
+
 ## Tasks
 
 ### Batch A — Domain shape and injectable time
@@ -98,8 +152,29 @@ inward, per architecture-review Wiring Surface)
 5. Commit: "ledger: add Account and Transaction types"
 
 **Files:** `internal/ledger/ledger.go`, `internal/ledger/ledger_test.go`, `internal/ledger/doc.go`
-**Wired-into:** `internal/store/sqlite.go#scanTransaction`, `internal/httpapi/router.go#NewRouter`
+**Wired-into:** `internal/store/sqlite.go#InsertAccount`, `internal/store/sqlite.go#Append`
 **Dependencies:** none
+
+> **Amended 2026-08-09 by operator review — build_review scope gap `test:build-review-plan`:**
+>
+> **Original approved assertion, preserved verbatim as the record of what DECIDE authorized:**
+> `**Wired-into:** internal/store/sqlite.go#scanTransaction, internal/httpapi/router.go#NewRouter`
+>
+> That assertion was wrong on both symbols. `scanTransaction` is a name this plan invented and the
+> implementation never created, and `NewRouter` consumes the router's dependencies rather than being
+> where these types are wired. The `Wired-into:` line above therefore now carries the **as-built**
+> call sites, `internal/store/sqlite.go#InsertAccount` and `internal/store/sqlite.go#Append`, which
+> is the reconciliation this amendment authorizes.
+>
+> The live line must hold the effective contract, not the superseded one: `wiring_check` parses the
+> `Wired-into:` line directly and does not read this note
+> (`.pipeline/wiring-evidence.json` recorded `contract = …#scanTransaction, …#NewRouter` while the
+> original was live, leaving an unresolvable symbol and a stale contract). An earlier revision of
+> this amendment kept the original on the live line and put the correction here, which halted the
+> feature; preserving the original as quoted text above satisfies the record without feeding the
+> verifier a symbol that does not exist.
+>
+> No product behavior changes — only the recorded wiring contract.
 
 ### Task 3: Six distinct sentinel errors
 **Story:** Story 5 (each rule reports its own sentinel)
@@ -585,6 +660,20 @@ value constructed and passed inward)
 3. Uncomment the reserved block in `web/style.css` — `.balance` at `4rem`/700, `.error` with
    `#fdecea` and a 6px `#b3261e` left border, tables with `border-collapse: collapse`. Values come
    from the styleguide unchanged.
+4. Write a failing stylesheet regression assertion in `web/web_test.go` that `html` **or** `:root`
+   declares `font-size: 20px` — the assertion must target the root element specifically, because a
+   `20px` rule on `body` does not change what `rem` resolves against and is exactly the state that
+   shipped unnoticed. Verify it fails (RED).
+5. Set the root `rem` basis in `web/style.css` — `html { font-size: 20px }` (or `:root`) — so
+   `table { font-size: 1rem }` is 20px, `h1` (`2rem`) is 40px, and `.balance` (`4rem`) is 80px, the
+   scale the styleguide's "Body 20px (`1rem` base)" line intends. Verify GREEN.
+
+> **Amended 2026-08-09 by operator decision:** step 4 added. `manual_test` found no `html`
+> `font-size` rule, so `1rem` resolves against the browser default of 16px, not the `20px` on `body`
+> — `rem` inherits from the root element, never from `body`. That puts `table { font-size: 1rem }`
+> at 16px, below the projector legibility floor, and silently shrinks `h1` (`2rem`) and `.balance`
+> (`4rem`) too. The styleguide's type scale states "Body 20px (`1rem` base)", so 20px is the intended
+> basis and this is a compliance bug, not a change to the design.
 4. Verify test passes (GREEN)
 5. Commit: "web: activate the balance, error, and table styles"
 
@@ -602,15 +691,33 @@ value constructed and passed inward)
 **Type:** happy-path
 
 **Steps:**
-1. Write failing test: seeding an in-memory database produces exactly 3 accounts and between 24 and
-   36 transactions; every id matches `^txn-\d{4}$`; the id set is globally unique and forms one
-   unbroken sequence with no per-account restart; all `created_at` values come from the injected
-   clock. Seeding twice into two fresh databases yields identical rows.
+1. Write failing test: seeding an in-memory database produces exactly 3 accounts and between 16 and
+   24 transactions; the first two accounts carry 8–12 transactions each and the third carries
+   **none**; the first account's amounts sum to exactly `128350` cents; every id matches
+   `^txn-\d{4}$`; the id set is globally unique and forms one unbroken sequence with no per-account
+   restart; all `created_at` values come from the injected clock. Seeding twice into two fresh
+   databases yields identical rows.
 2. Verify test fails (RED)
-3. Implement the seed as literal data — 3 accounts, 8–12 plausible transactions each, fixed
-   timestamps, no randomness, no `time.Now()`.
+3. Implement the seed as literal data — 3 accounts, the first two with 8–12 plausible transactions
+   each summing to `128350` cents for the first, the third deliberately empty, fixed timestamps, no
+   randomness, no `time.Now()`.
 4. Verify test passes (GREEN)
 5. Commit: "cmd/server: load deterministic seed data"
+
+> **Amended 2026-08-09 by operator decision (FR-15 reconciliation):** originally "3 accounts, 8–12
+> plausible transactions each" and "between 24 and 36 transactions", which is retained above in the
+> preceding revision's wording via the FR-15 amendment record. The third account is now seeded empty
+> so FR-4's empty state is reachable on stage, and the first account's sum is pinned to `128350`
+> cents so Story 1's and the API contract's worked examples hold against seed data. `manual_test`
+> kicked this task back twice against the old shape.
+>
+> **Seeded descriptions must not name anything on the non-goals list.** `manual_test` found the
+> current fixture showing "Interest credit", "Transfer fee", "Account fee", and "Automatic transfer"
+> (×5) — interest, fees, and transfers are all explicit non-goals, and these would appear on the
+> projector in a demo whose whole premise is that those features do not exist. Three of them were
+> padding that nets to zero, added only to keep a balance assertion alive. Replace them with
+> descriptions drawn from ordinary deposit-account activity, keeping each account's count in range
+> and `acct-1`'s sum at exactly `128350` cents.
 
 **Files:** `cmd/server/seed.go`, `cmd/server/seed_test.go`
 **Wired-into:** `cmd/server/main.go#seed` (the `seed` subcommand `make seed`/`make reset` already run)
@@ -630,8 +737,22 @@ value constructed and passed inward)
 4. Verify test passes (GREEN)
 5. Commit: "cmd/server: wire the store and clock into serve and seed"
 
-**Files:** `cmd/server/main.go`, `cmd/server/main_test.go`
+**Files:** `cmd/server/main.go`, `cmd/server/main_test.go`, `.env.example`, `CLAUDE.md`
 **Wired-into:** `cmd/server/main.go#main` (the process entry point dispatching `serve` and `seed`)
+
+> **Amended 2026-08-09 by operator review — build_review gaps `test:build-review-env-scope` and
+> `test:build-review-doc-scope`:** `.env.example` and `CLAUDE.md` added to `Files:`. Wiring `serve`
+> settled how the port and database path are actually supplied, and both files documented the
+> superseded contract — `.env.example:10-13` described per-worktree override files and
+> `CLAUDE.md:102-112` described a `.env.local`, when `make` loads neither and the supported form is an
+> invocation-time override (`make dev PORT=<port>`, with `LEDGER_DB_PATH` alongside it when a
+> worktree needs a distinct database). `build_review` correctly flagged both as changed by a diff no
+> `Files:` line assigned.
+>
+> These belong to this task rather than a separate documentation task: both files document *this
+> task's* contract, and the plan skill's documentation boundary forbids splitting documentation that
+> accompanies functional work into its own task. Scoping them here describes the diff without
+> creating one.
 **Dependencies:** 29, 24
 
 ### Task 31: File-backed reset determinism

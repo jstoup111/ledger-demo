@@ -8,7 +8,7 @@
 //	type Clock interface { Now() time.Time }
 //
 // plus SystemClock (the only place in the entire codebase permitted to call
-// time.Now) and FixedClock (used by every test, so the suite is fully
+// the system clock function) and FixedClock (used by every test, so the suite is fully
 // deterministic).
 //
 // Time is injected, never read directly.

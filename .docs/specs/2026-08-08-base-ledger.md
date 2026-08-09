@@ -109,6 +109,35 @@ drawn from here; if any already exists, the demo is ruined.
 - **FR-15** A single reset action restores a pristine starting state: three accounts, each with
   between eight and twelve plausible transactions, identical on every reset with no run-to-run
   variation of any kind.
+
+  > **Provenance of this amendment** (recorded because `manual_test` flagged it as "unresolved
+  > provenance", correctly — an amendment asserting operator authority should show its basis). The
+  > operator was presented with this exact contradiction and the two candidate resolutions, chose
+  > "amend FR-15 so the third account is seeded empty" over "keep FR-15 and give Stories 1–2 a
+  > fixture", and then instructed: *"fix fr-15 and reseal for me. i am going to go to bed and want it
+  > fixed so the build runs through the night."* The rationale given and accepted was that no
+  > account-creation capability exists anywhere in this spec, so an empty seeded account is the only
+  > way FR-4's state can be shown on stage.
+  >
+  > **Amended 2026-08-09 by operator decision:** the assertion above is retained as the record of
+  > what was originally approved, and it contradicted FR-4 and Stories 1–2, which require an account
+  > with **no** transactions. Both cannot hold for one seed dataset, and there is no
+  > account-creation capability anywhere in this spec, so "every seeded account has 8–12
+  > transactions" makes FR-4's empty state unreachable on stage — the presenter has no way to
+  > produce an empty account.
+  >
+  > **The effective requirement is:** a reset restores three accounts, of which **two** carry
+  > between eight and twelve plausible transactions and the **third is seeded empty**, identical on
+  > every reset with no run-to-run variation. The first account's transactions sum to exactly
+  > `128350` cents, so the worked examples in Story 1 and in
+  > `.docs/decisions/api-response-contract.md` hold against seed data rather than only against a
+  > fixture.
+  >
+  > This was not a theoretical inconsistency: `manual_test` failed twice on it —
+  > *"Seed fixture: `acct-1` is 128350 cents and `acct-3` is empty | FAIL | Observed
+  > `acct-1.balance_cents` = 214771; `GET /api/accounts/acct-3/transactions` returned nine rows, not
+  > `[]`"* — and kicked BUILD back to re-seed against a requirement it could not satisfy either way,
+  > consuming both of the gate's allowed kickbacks.
 - **FR-16** A single run action serves the page locally on a fixed, configurable port.
 
 ## Non-Functional Requirements

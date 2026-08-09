@@ -9,18 +9,44 @@
   <main>
     <h1>ledger-demo</h1>
 
-    <p class="stub">
-      Scaffold only. The ledger is built live.
-    </p>
+    <nav aria-label="Accounts">
+      {{range .Accounts}}<a href="{{.Link}}">{{.Name}}</a>{{end}}
+    </nav>
 
-    <!--
-      Built during the demo:
-        - account selector
-        - current balance in large type
-        - transaction list (newest first)
-        - a form to post a transaction (amount + description)
-        - visible error rendering
-    -->
+    {{if .AccountNotFound}}
+    {{if .ErrorMessage}}
+    <p class="error">{{.ErrorMessage}}</p>
+    {{end}}
+    <p class="requested-account">Requested account: <code>{{.RequestedAccount}}</code></p>
+    {{else if .HasSelectedAccount}}
+    <p class="balance">{{.Balance}} <span class="selected-account">Selected account: {{.SelectedAccount}}</span></p>
+
+    {{if .FormAction}}
+    {{if .ErrorMessage}}
+    <p class="error">{{.ErrorMessage}}</p>
+    {{end}}
+    <form method="post" action="{{.FormAction}}">
+      <label>Amount <input name="amount" required></label>
+      <label>Description <input name="description" required></label>
+      <button type="submit">Post transaction</button>
+    </form>
+    {{end}}
+
+    <section aria-label="Transactions">
+      {{if .Transactions}}
+      <table>
+        <thead><tr><th>Description</th><th>Amount</th><th>Recorded</th></tr></thead>
+        <tbody>
+          {{range .Transactions}}<tr><td>{{.Description}}</td><td>{{.Amount}}</td><td>{{.RecordedAt}}</td></tr>{{end}}
+        </tbody>
+      </table>
+      {{else}}
+      <p>No transactions.</p>
+      {{end}}
+    </section>
+    {{else if .ErrorMessage}}
+    <p class="error">{{.ErrorMessage}}</p>
+    {{end}}
   </main>
 </body>
 </html>

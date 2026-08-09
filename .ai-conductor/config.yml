@@ -92,26 +92,26 @@ test_suite:
   timeout_seconds: 120
 
 # --- Acceptance-spec discovery -----------------------------------------------
-# The acceptance_specs gate's built-in globs are Ruby/JS-shaped
-# (spec/acceptance/**, spec/requests/**, test/**, *.test.ts, …). None of them
-# match a top-level acceptance/ directory, so on 2026-08-08 the gate reported
-# "no acceptance spec files present" while 39KB of correct, correctly-RED Go
-# specs sat in acceptance/ — burning two full provider attempts before the step
-# relocated them to test/acceptance/ just to satisfy a built-in pattern.
+# The specs live in test/acceptance/, which the acceptance_specs gate's BUILT-IN
+# globs already match (test/acceptance/**/*). There is deliberately NO
+# acceptance_spec_globs override here, and re-adding one is the wrong fix.
 #
-# These globs are APPENDED to the built-ins (engine: extraArtifactGlobs +
-# findArtifactFiles), never substituted for them, so declaring acceptance/ here
-# does not stop test/acceptance/ from resolving. Specs may live in either.
+# Why this needs saying: the gate's built-in globs are Ruby/JS-shaped
+# (spec/acceptance/**, spec/requests/**, test/**, *.test.ts …) and match no
+# top-level acceptance/ directory. On 2026-08-08 that made the gate report "no
+# acceptance spec files present" while 39KB of correct, correctly-RED Go specs
+# sat in acceptance/ — burning two full provider attempts before the step
+# relocated them here.
 #
-# Pattern style mirrors the built-ins deliberately: the glob matcher supports
-# `dir/*.ext`, `dir/**/*.ext`, and `dir/**/*`, so `acceptance/**/*` is a
-# supported form while `acceptance/**/*_test.go` is not one of the documented
-# shapes and would risk matching nothing.
+# An override cannot fix it from inside the failing step: project config is
+# cached at daemon session start, so a mid-session acceptance_spec_globs commit
+# never reaches the gate. Relocating the specs is what actually works, which is
+# why they are where they are. Do not move them back.
 #
-# NOTE: project config is cached at daemon session start, so this takes effect
-# on the next daemon restart — never mid-session.
-acceptance_spec_globs:
-  - "acceptance/**/*"
+# For reference, project globs are APPENDED to the built-ins (engine:
+# extraArtifactGlobs + findArtifactFiles), never substituted — so an override
+# would not have broken test/acceptance/. It would simply have been dead weight
+# pointing at an empty directory.
 
 # complexity:
 #   default_tier: M

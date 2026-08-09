@@ -100,15 +100,16 @@ no database host, no database port, no Redis, and no `docker compose`. Docker is
 non-goal.
 
 - **`.env.example`** (committed) — reference showing the two variables that exist.
-- **`.env`** (gitignored) — working environment for this worktree.
-- **`.env.local`** (gitignored) — worktree-specific overrides.
+- **`.env`** (gitignored) — an optional local reference file; `make` does not load it.
 
 **Boot sequence:**
 1. `make reset` — drop the DB and load deterministic seed data
 2. `make dev` — serve on `http://localhost:8080`
 
-Worktrees coexist by setting a distinct `PORT` and a distinct `LEDGER_DB_PATH` in
-`.env.local`. Nothing is shared between them, so no namespacing is required.
+For concurrent worktrees, pass a distinct port when starting the server:
+`make dev PORT=<port>` or `PORT=<port> make dev`. Set `LEDGER_DB_PATH` in the
+same command when a worktree needs a non-default database path. Nothing is shared
+between worktrees, so no namespacing is required.
 
 **Adding new infrastructure requires an ADR** — and note that most candidates (Docker,
 external services, network calls) are non-goals above.

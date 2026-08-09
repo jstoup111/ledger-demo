@@ -1,5 +1,9 @@
 /* Projector-legible. Light theme only: no dark mode, no breakpoints, no animation. */
 
+html {
+  font-size: 20px;
+}
+
 body {
   margin: 0;
   padding: 2rem;
@@ -23,10 +27,34 @@ h1 {
   color: #444444;
 }
 
-/* Reserved for the demo — kept here so the classes exist before the markup does.
+.balance {
+  font-size: 4rem;
+  font-weight: 700;
+}
 
-.balance  { font-size: 4rem; font-weight: 700; }
-.error    { background: #fdecea; border-left: 6px solid #b3261e; padding: 1rem; }
-table     { border-collapse: collapse; width: 100%; font-size: 1rem; }
-th, td    { border-bottom: 2px solid #dddddd; padding: 0.6rem; text-align: left; }
-*/
+nav a {
+  margin-right: 1rem;
+}
+
+.selected-account {
+  font-size: 1rem;
+  font-weight: normal;
+}
+
+.error {
+  background: #fdecea;
+  border-left: 6px solid #b3261e;
+  padding: 1rem;
+}
+
+table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 1rem;
+}
+
+th, td {
+  border-bottom: 2px solid #dddddd;
+  padding: 0.6rem;
+  text-align: left;
+}
