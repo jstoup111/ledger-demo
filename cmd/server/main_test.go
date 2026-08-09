@@ -101,6 +101,49 @@ func TestRunServeUsesConfiguredDatabaseAndPortWithoutListening(t *testing.T) {
 	}
 }
 
+func TestRunServeUsesDefaultPortWhenPortIsUnsetOrBlank(t *testing.T) {
+	for _, testCase := range []struct {
+		name   string
+		setEnv bool
+	}{
+		{name: "unset"},
+		{name: "blank", setEnv: true},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			dbPath := filepath.Join(t.TempDir(), "ledger.db")
+			t.Setenv("LEDGER_DB_PATH", dbPath)
+			if testCase.setEnv {
+				t.Setenv("PORT", "")
+			} else {
+				originalPort, wasSet := os.LookupEnv("PORT")
+				if err := os.Unsetenv("PORT"); err != nil {
+					t.Fatalf("Unsetenv(PORT) error = %v", err)
+				}
+				t.Cleanup(func() {
+					if wasSet {
+						_ = os.Setenv("PORT", originalPort)
+						return
+					}
+					_ = os.Unsetenv("PORT")
+				})
+			}
+
+			originalListenAndServe := listenAndServe
+			t.Cleanup(func() { listenAndServe = originalListenAndServe })
+			listenAndServe = func(addr string, _ http.Handler) error {
+				if addr != ":"+defaultPort {
+					t.Errorf("listen address = %q, want default %q", addr, ":"+defaultPort)
+				}
+				return http.ErrServerClosed
+			}
+
+			if err := run("serve"); err != nil {
+				t.Fatalf("run(serve) error = %v", err)
+			}
+		})
+	}
+}
+
 func TestSeedReportsMissingParentDatabaseDirectory(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "missing", "ledger.db")
 	t.Setenv("LEDGER_DB_PATH", dbPath)
