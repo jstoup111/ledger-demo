@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"reflect"
 	"regexp"
+	"sort"
+	"strings"
 	"testing"
 	"time"
 
@@ -32,6 +34,10 @@ func TestLoadSeedDataIsDeterministic(t *testing.T) {
 	idPattern := regexp.MustCompile(`^txn-\d{4}$`)
 	seenIDs := make(map[string]bool, len(first.transactions))
 	perAccount := make(map[string][]ledger.Transaction, len(first.accounts))
+	anchor := seedClock.Now()
+	hasAnchor := false
+	earliest := first.transactions[0].CreatedAt
+	latest := first.transactions[0].CreatedAt
 	for _, transaction := range first.transactions {
 		if !idPattern.MatchString(transaction.ID) {
 			t.Fatalf("transaction ID %q does not match %q", transaction.ID, idPattern)
@@ -41,9 +47,57 @@ func TestLoadSeedDataIsDeterministic(t *testing.T) {
 		}
 		seenIDs[transaction.ID] = true
 		perAccount[transaction.AccountID] = append(perAccount[transaction.AccountID], transaction)
-		if transaction.CreatedAt != seedClock.Now() {
-			t.Fatalf("transaction %q created at %v, want injected clock %v", transaction.ID, transaction.CreatedAt, seedClock.Now())
+		if transaction.CreatedAt.After(anchor) {
+			t.Fatalf("transaction %q created at %v, after anchor %v", transaction.ID, transaction.CreatedAt, anchor)
 		}
+		if transaction.CreatedAt.Equal(anchor) {
+			hasAnchor = true
+		}
+		if !transaction.CreatedAt.Truncate(time.Second).Equal(transaction.CreatedAt) {
+			t.Fatalf("transaction %q created at %v, want whole-second precision", transaction.ID, transaction.CreatedAt)
+		}
+		if !strings.HasSuffix(transaction.CreatedAt.Format(time.RFC3339Nano), "Z") {
+			t.Fatalf("transaction %q created at %v, want UTC/Z", transaction.ID, transaction.CreatedAt)
+		}
+		if transaction.CreatedAt.Before(earliest) {
+			earliest = transaction.CreatedAt
+		}
+		if transaction.CreatedAt.After(latest) {
+			latest = transaction.CreatedAt
+		}
+	}
+	if !hasAnchor {
+		t.Fatal("no seeded transaction has the anchor created-at time")
+	}
+	if got := latest.Sub(earliest); got < 28*24*time.Hour {
+		t.Fatalf("seeded timestamp span = %v, want at least 28 days", got)
+	}
+	for accountID, transactions := range perAccount {
+		if len(transactions) == 0 {
+			continue
+		}
+		sort.Slice(transactions, func(i, j int) bool {
+			return transactions[i].ID < transactions[j].ID
+		})
+		for i := 1; i < len(transactions); i++ {
+			if transactions[i].CreatedAt.Before(transactions[i-1].CreatedAt) {
+				t.Fatalf("%s transaction %q created at %v, before preceding %q at %v", accountID, transactions[i].ID, transactions[i].CreatedAt, transactions[i-1].ID, transactions[i-1].CreatedAt)
+			}
+		}
+	}
+	acct1Times := make(map[time.Time]bool, len(perAccount["acct-1"]))
+	for _, transaction := range perAccount["acct-1"] {
+		acct1Times[transaction.CreatedAt] = true
+	}
+	if len(acct1Times) < 2 {
+		t.Fatalf("acct-1 distinct created-at values = %d, want more than 1", len(acct1Times))
+	}
+	acct2Times := make(map[time.Time]bool, len(perAccount["acct-2"]))
+	for _, transaction := range perAccount["acct-2"] {
+		acct2Times[transaction.CreatedAt] = true
+	}
+	if got, want := len(acct2Times), len(perAccount["acct-2"]); got != want {
+		t.Fatalf("acct-2 distinct created-at values = %d, want %d", got, want)
 	}
 	var acct1Balance int64
 	for _, transaction := range perAccount["acct-1"] {
