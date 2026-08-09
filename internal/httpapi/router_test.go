@@ -498,6 +498,16 @@ func TestRouterComposesDetailedPageRejectionMessages(t *testing.T) {
 		want string
 	}{
 		{
+			name: "zero amount carries a zero submitted value",
+			path: "/?account=acct-1&error=amount_zero&detail=0.00",
+			want: "Amount must not be zero. Submitted: 0.00.",
+		},
+		{
+			name: "zero amount carries a negative-zero submitted value",
+			path: "/?account=acct-1&error=amount_zero&detail=-0.00",
+			want: "Amount must not be zero. Submitted: -0.00.",
+		},
+		{
 			name: "malformed amount carries the submitted value",
 			path: "/?account=acct-1&error=amount_malformed&detail=12.3.4",
 			want: "Amount is malformed. Submitted: 12.3.4.",
@@ -568,6 +578,24 @@ func TestRouterComposesDetailedPageRejectionMessages(t *testing.T) {
 				omitted: "bad\nvalue",
 			},
 			{
+				name:    "zero amount with non-zero detail",
+				path:    "/?account=acct-1&error=amount_zero&detail=5.00",
+				want:    "Amount must not be zero.",
+				omitted: "5.00",
+			},
+			{
+				name:    "zero amount with non-numeric detail",
+				path:    "/?account=acct-1&error=amount_zero&detail=not-zero-at-all",
+				want:    "Amount must not be zero.",
+				omitted: "not-zero-at-all",
+			},
+			{
+				name:    "zero amount with negative non-zero detail",
+				path:    "/?account=acct-1&error=amount_zero&detail=-12.34",
+				want:    "Amount must not be zero.",
+				omitted: "-12.34",
+			},
+			{
 				name:    "non-numeric description count",
 				path:    "/?account=acct-1&error=description_too_long&detail=abc",
 				want:    "Description is too long.",
@@ -609,6 +637,45 @@ func TestRouterComposesDetailedPageRejectionMessages(t *testing.T) {
 				}
 				if tt.omitted != "" && strings.Contains(body, tt.omitted) {
 					t.Errorf("page rendered tampered detail %q; body = %s", tt.omitted, body)
+				}
+			})
+		}
+	})
+
+	t.Run("balance detail reachability boundaries preserve only producible messages", func(t *testing.T) {
+		for _, tt := range []struct {
+			name string
+			path string
+			want string
+		}{
+			{
+				name: "negative balance at the current balance is plain",
+				path: "/?account=acct-1&error=balance_would_go_negative&detail=-10000",
+				want: "Balance would go negative.",
+			},
+			{
+				name: "negative balance one cent beyond the current balance is enriched",
+				path: "/?account=acct-1&error=balance_would_go_negative&detail=-10001",
+				want: "Balance would go negative. Posting -$100.01 against a balance of $100.00.",
+			},
+			{
+				name: "overflow at the maximum remaining capacity is plain",
+				path: "/?account=acct-1&error=balance_overflow&detail=9223372036854765807",
+				want: "Balance would overflow.",
+			},
+			{
+				name: "overflow one cent beyond the maximum remaining capacity is enriched",
+				path: "/?account=acct-1&error=balance_overflow&detail=9223372036854765808",
+				want: "Balance would overflow. Posting $92,233,720,368,547,658.08 against a balance of $100.00.",
+			},
+		} {
+			t.Run(tt.name, func(t *testing.T) {
+				rec := httptest.NewRecorder()
+				router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, tt.path, nil))
+
+				_, panel := pageErrorPanel(t, rec.Body.String())
+				if got := strings.TrimSpace(panel); got != tt.want {
+					t.Errorf("error panel = %q, want %q", got, tt.want)
 				}
 			})
 		}
@@ -1169,6 +1236,57 @@ func TestRouterJSONPostRejectionsNameTheirContext(t *testing.T) {
 			}
 			if got, want := response.Error.Message, tt.message; got != want {
 				t.Errorf("error message = %q, want %q", got, want)
+			}
+		})
+	}
+}
+
+func TestRouterJSONAmountZeroMessageDegradesTamperedDetails(t *testing.T) {
+	for _, tt := range []struct {
+		name   string
+		detail string
+		want   string
+	}{
+		{
+			name:   "zero amount preserves a zero detail",
+			detail: "0.00",
+			want:   "Amount must not be zero. Submitted: 0.00.",
+		},
+		{
+			name:   "zero amount preserves a negative-zero detail",
+			detail: "-0.00",
+			want:   "Amount must not be zero. Submitted: -0.00.",
+		},
+		{
+			name:   "non-zero amount detail is plain",
+			detail: "5.00",
+			want:   "Amount must not be zero.",
+		},
+		{
+			name:   "non-numeric detail is plain",
+			detail: "not-zero-at-all",
+			want:   "Amount must not be zero.",
+		},
+		{
+			name:   "negative non-zero amount detail is plain",
+			detail: "-12.34",
+			want:   "Amount must not be zero.",
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			request := httptest.NewRequest(http.MethodPost, "/api/accounts/acct-1/transactions", nil)
+			writePostError(recorder, request, true, "acct-1", ledger.ErrAmountZero, messageContext{value: tt.detail})
+
+			if got, want := recorder.Code, http.StatusBadRequest; got != want {
+				t.Fatalf("status = %d, want %d; body = %s", got, want, recorder.Body.String())
+			}
+			var response errorEnvelope
+			if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+				t.Fatalf("response is not JSON: %v; body = %s", err, recorder.Body.String())
+			}
+			if got := response.Error.Message; got != tt.want {
+				t.Errorf("error message = %q, want %q", got, tt.want)
 			}
 		})
 	}

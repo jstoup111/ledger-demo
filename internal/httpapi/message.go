@@ -1,10 +1,13 @@
 package httpapi
 
 import (
+	"errors"
 	"math"
 	"strconv"
 	"unicode"
 	"unicode/utf8"
+
+	"github.com/jstoup111/ledger-demo/internal/ledger"
 )
 
 type messageContext struct {
@@ -24,7 +27,7 @@ func messageFor(identifier string, context messageContext) string {
 		}
 		return "Account not found."
 	case "amount_zero":
-		if value, ok := freeTextCarriedValue(context.value); ok {
+		if value, ok := zeroAmountCarriedValue(context.value); ok {
 			return "Amount must not be zero. Submitted: " + value + "."
 		}
 		return "Amount must not be zero."
@@ -88,6 +91,16 @@ func freeTextCarriedValue(value string) (string, bool) {
 	}
 
 	return value, true
+}
+
+func zeroAmountCarriedValue(value string) (string, bool) {
+	value, ok := freeTextCarriedValue(value)
+	if !ok {
+		return "", false
+	}
+
+	_, err := parseAmount(value)
+	return value, errors.Is(err, ledger.ErrAmountZero)
 }
 
 func characterCountCarriedValue(value string) (string, bool) {

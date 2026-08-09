@@ -381,7 +381,11 @@ func writePostError(w http.ResponseWriter, r *http.Request, jsonResponse bool, a
 
 func postRedirectDetail(code, value string) string {
 	switch code {
-	case "amount_zero", "amount_malformed":
+	case "amount_zero":
+		if detail, ok := zeroAmountCarriedValue(value); ok {
+			return detail
+		}
+	case "amount_malformed":
 		if detail, ok := freeTextCarriedValue(value); ok {
 			return detail
 		}

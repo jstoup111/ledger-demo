@@ -95,6 +95,33 @@ func TestMessageForNamesSubmittedAmountForAmountRejections(t *testing.T) {
 			want:       "Amount must not be zero. Submitted: 0.00.",
 		},
 		{
+			name:       "negative zero amount",
+			identifier: "amount_zero",
+			value:      "-0.00",
+			want:       "Amount must not be zero. Submitted: -0.00.",
+		},
+		{
+			name:         "zero amount with non-zero amount",
+			identifier:   "amount_zero",
+			value:        "5.00",
+			want:         "Amount must not be zero.",
+			rejectsValue: true,
+		},
+		{
+			name:         "zero amount with non-numeric value",
+			identifier:   "amount_zero",
+			value:        "not-zero-at-all",
+			want:         "Amount must not be zero.",
+			rejectsValue: true,
+		},
+		{
+			name:         "zero amount with negative non-zero amount",
+			identifier:   "amount_zero",
+			value:        "-12.34",
+			want:         "Amount must not be zero.",
+			rejectsValue: true,
+		},
+		{
 			name:       "malformed amount",
 			identifier: "amount_malformed",
 			value:      "12.3.4",
