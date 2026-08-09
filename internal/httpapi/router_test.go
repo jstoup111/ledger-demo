@@ -343,10 +343,10 @@ func TestRouterRendersPageErrorStates(t *testing.T) {
 			code    string
 			message string
 		}{
-			{code: "account_not_found", message: "Account not found."},
+			{code: "account_not_found", message: `Account &#34;acct-1&#34; was not found.`},
 			{code: "amount_zero", message: "Amount must not be zero."},
-			{code: "description_too_long", message: "Description is too long."},
-			{code: "amount_malformed", message: "Amount is malformed."},
+			{code: "description_too_long", message: "Description is too long; the limit is 140 characters."},
+			{code: "amount_malformed", message: "Amount is not a valid money value."},
 			{code: "balance_would_go_negative", message: "Balance would go negative."},
 		} {
 			t.Run(tt.code, func(t *testing.T) {
@@ -403,7 +403,7 @@ func TestRouterRendersPageErrorStates(t *testing.T) {
 				t.Errorf("unknown account page does not contain account link %q; body = %s", link, body)
 			}
 		}
-		if !strings.Contains(body, "Account not found.") || strings.Contains(body, `class="balance"`) || strings.Contains(body, "<form") || strings.Contains(body, `aria-label="Transactions"`) {
+		if !strings.Contains(body, `Account &#34;acct-nope&#34; was not found.`) || strings.Contains(body, `class="balance"`) || strings.Contains(body, "<form") || strings.Contains(body, `aria-label="Transactions"`) {
 			t.Errorf("unknown account page must show the selector and not-found message only; body = %s", body)
 		}
 	})
@@ -427,7 +427,7 @@ func TestRouterRendersPageErrorStates(t *testing.T) {
 		body := rec.Body.String()
 
 		_, panel := pageErrorPanel(t, body)
-		if !strings.Contains(panel, "Amount is malformed.") {
+		if !strings.Contains(panel, "Amount is not a valid money value.") {
 			t.Errorf("error panel = %q, want requested error message", panel)
 		}
 	})
@@ -443,7 +443,7 @@ func TestRouterRendersPageErrorStates(t *testing.T) {
 		body := rec.Body.String()
 
 		_, panel := pageErrorPanel(t, body)
-		if !strings.Contains(panel, "Amount is malformed.") {
+		if !strings.Contains(panel, "Amount is not a valid money value.") {
 			t.Errorf("error panel = %q, want requested error message", panel)
 		}
 		if strings.Contains(body, "<form") || strings.Contains(body, `action=""`) {
@@ -599,8 +599,9 @@ func TestRouterNegotiatesCodedPostErrorsByContentType(t *testing.T) {
 		body       string
 		code       string
 		jsonStatus int
+		wantExtra  string
 	}{
-		{name: "malformed amount at the boundary", path: "/api/accounts/acct-1/transactions", body: "amount=bad&description=Coffee", code: "amount_malformed", jsonStatus: http.StatusBadRequest},
+		{name: "malformed amount at the boundary", path: "/api/accounts/acct-1/transactions", body: "amount=bad&description=Coffee", code: "amount_malformed", jsonStatus: http.StatusBadRequest, wantExtra: "&value=bad"},
 		{name: "empty description in the domain", path: "/api/accounts/acct-1/transactions", body: "amount=1.00&description=", code: "description_empty", jsonStatus: http.StatusBadRequest},
 		{name: "unknown account in the domain", path: "/api/accounts/acct-nope/transactions", body: "amount=1.00&description=Coffee", code: "account_not_found", jsonStatus: http.StatusNotFound},
 	} {
@@ -613,7 +614,7 @@ func TestRouterNegotiatesCodedPostErrorsByContentType(t *testing.T) {
 			if got, want := form.Code, http.StatusSeeOther; got != want {
 				t.Fatalf("form status = %d, want %d; body = %s", got, want, form.Body.String())
 			}
-			if got, want := form.Header().Get("Location"), "/?account="+url.QueryEscape(strings.TrimSuffix(strings.TrimPrefix(tt.path, "/api/accounts/"), "/transactions"))+"&error="+tt.code; got != want {
+			if got, want := form.Header().Get("Location"), "/?account="+url.QueryEscape(strings.TrimSuffix(strings.TrimPrefix(tt.path, "/api/accounts/"), "/transactions"))+"&error="+tt.code+tt.wantExtra; got != want {
 				t.Errorf("form Location = %q, want %q", got, want)
 			}
 
@@ -687,7 +688,7 @@ func TestRouterMapsBalanceOverflowAtBothPostingBoundaries(t *testing.T) {
 		if got, want := rejected.Code, http.StatusSeeOther; got != want {
 			t.Fatalf("rejected form status = %d, want %d; body = %s", got, want, rejected.Body.String())
 		}
-		if got, want := rejected.Header().Get("Location"), "/?account=acct-1&error=balance_overflow"; got != want {
+		if got, want := rejected.Header().Get("Location"), "/?account=acct-1&error=balance_overflow&attempted=1&balance=9223372036854775807"; got != want {
 			t.Errorf("rejected form Location = %q, want %q", got, want)
 		}
 		if output := logs.String(); !strings.Contains(output, ledger.ErrBalanceOverflow.Error()) {
@@ -696,8 +697,9 @@ func TestRouterMapsBalanceOverflowAtBothPostingBoundaries(t *testing.T) {
 		page := httptest.NewRecorder()
 		router.ServeHTTP(page, httptest.NewRequest(http.MethodGet, rejected.Header().Get("Location"), nil))
 		errorPosition, panel := pageErrorPanel(t, page.Body.String())
-		if !strings.Contains(panel, "Balance would overflow.") {
-			t.Errorf("error panel = %q, want overflow message", panel)
+		wantPanel := "Amount $0.01 combined with balance $92,233,720,368,547,758.07 exceeds the maximum balance."
+		if !strings.Contains(panel, wantPanel) {
+			t.Errorf("error panel = %q, want overflow message %q", panel, wantPanel)
 		}
 		formPosition := strings.Index(page.Body.String(), "<form")
 		if formPosition < 0 || errorPosition >= formPosition {
@@ -745,7 +747,7 @@ func TestRouterMapsBalanceOverflowAtBothPostingBoundaries(t *testing.T) {
 		if got, want := response.Error.Code, "balance_overflow"; got != want {
 			t.Errorf("error code = %q, want %q", got, want)
 		}
-		if got, want := response.Error.Message, "Balance would overflow."; got != want {
+		if got, want := response.Error.Message, "Amount $0.01 combined with balance $92,233,720,368,547,758.07 exceeds the maximum balance."; got != want {
 			t.Errorf("error message = %q, want %q", got, want)
 		}
 		countAfter, err := store.CountTransactions()
@@ -760,6 +762,118 @@ func TestRouterMapsBalanceOverflowAtBothPostingBoundaries(t *testing.T) {
 			t.Errorf("rejected JSON changed count/balance to %d/%d, want %d/%d", countAfter, balanceAfter, countBefore, balanceBefore)
 		}
 	})
+}
+
+// TestRouterFormRejectionsNameTheOffendingValueOnReload is the scripted stage
+// moment: a real browser-form submission is rejected, redirected, and the
+// reloaded page's panel must be specific enough to read from the back of the
+// room — not just a generic rule name.
+func TestRouterFormRejectionsNameTheOffendingValueOnReload(t *testing.T) {
+	store := &routerTestStore{
+		accounts:     []ledger.Account{{ID: "acct-1", Name: "Checking"}},
+		transactions: map[string][]ledger.Transaction{"acct-1": {{Amount: 4000}}},
+	}
+	router, err := NewRouter(store, routerClock)
+	if err != nil {
+		t.Fatalf("NewRouter() error = %v, want nil", err)
+	}
+
+	tests := []struct {
+		name      string
+		body      string
+		wantPanel string
+	}{
+		{
+			name:      "malformed amount names the value received",
+			body:      "amount=abc&description=Coffee",
+			wantPanel: `Amount &#34;abc&#34; is not a valid money value.`,
+		},
+		{
+			name:      "description too long states the length and the limit",
+			body:      "amount=1.00&description=" + url.QueryEscape(strings.Repeat("d", 156)),
+			wantPanel: "Description is 156 characters; the limit is 140.",
+		},
+		{
+			name:      "balance would go negative states the attempted amount and the current balance",
+			body:      "amount=-50.00&description=Big+withdrawal",
+			wantPanel: "Amount -$50.00 would take balance $40.00 below zero.",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rejected := postTransaction(router, "/api/accounts/acct-1/transactions", "application/x-www-form-urlencoded", tt.body)
+			if got, want := rejected.Code, http.StatusSeeOther; got != want {
+				t.Fatalf("form status = %d, want %d; body = %s", got, want, rejected.Body.String())
+			}
+
+			page := httptest.NewRecorder()
+			router.ServeHTTP(page, httptest.NewRequest(http.MethodGet, rejected.Header().Get("Location"), nil))
+			_, panel := pageErrorPanel(t, page.Body.String())
+			if !strings.Contains(panel, tt.wantPanel) {
+				t.Errorf("error panel = %q, want it to contain %q", panel, tt.wantPanel)
+			}
+		})
+	}
+}
+
+// TestRouterEscapesScriptBearingAmountInRejectionPanel proves the offending
+// amount value echoed into the panel is HTML-escaped, not injected raw, even
+// though it flows through a redirect URL and back.
+func TestRouterEscapesScriptBearingAmountInRejectionPanel(t *testing.T) {
+	store := &routerTestStore{accounts: []ledger.Account{{ID: "acct-1", Name: "Checking"}}}
+	router, err := NewRouter(store, routerClock)
+	if err != nil {
+		t.Fatalf("NewRouter() error = %v, want nil", err)
+	}
+
+	scriptAmount := "<script>alert(1)</script>"
+	rejected := postTransaction(router, "/api/accounts/acct-1/transactions", "application/x-www-form-urlencoded",
+		"amount="+url.QueryEscape(scriptAmount)+"&description=Coffee")
+	if got, want := rejected.Code, http.StatusSeeOther; got != want {
+		t.Fatalf("form status = %d, want %d; body = %s", got, want, rejected.Body.String())
+	}
+
+	page := httptest.NewRecorder()
+	router.ServeHTTP(page, httptest.NewRequest(http.MethodGet, rejected.Header().Get("Location"), nil))
+	body := page.Body.String()
+
+	if strings.Contains(strings.ToLower(body), "<script") {
+		t.Errorf("rejection panel must not contain a raw script tag; body = %s", body)
+	}
+	_, panel := pageErrorPanel(t, body)
+	if !strings.Contains(panel, "&lt;script&gt;alert(1)&lt;/script&gt;") {
+		t.Errorf("error panel = %q, want the offending amount rendered escaped", panel)
+	}
+}
+
+// TestRouterEscapesScriptBearingDescriptionInTransactionsTable proves an
+// accepted transaction's description — a value echoed on the page independent
+// of any rejection — is HTML-escaped when rendered in the transactions table.
+func TestRouterEscapesScriptBearingDescriptionInTransactionsTable(t *testing.T) {
+	store := &routerTestStore{accounts: []ledger.Account{{ID: "acct-1", Name: "Checking"}}}
+	router, err := NewRouter(store, routerClock)
+	if err != nil {
+		t.Fatalf("NewRouter() error = %v, want nil", err)
+	}
+
+	scriptDescription := "<script>alert(1)</script>"
+	accepted := postTransaction(router, "/api/accounts/acct-1/transactions", "application/x-www-form-urlencoded",
+		"amount=1.00&description="+url.QueryEscape(scriptDescription))
+	if got, want := accepted.Code, http.StatusSeeOther; got != want {
+		t.Fatalf("form status = %d, want %d; body = %s", got, want, accepted.Body.String())
+	}
+
+	page := httptest.NewRecorder()
+	router.ServeHTTP(page, httptest.NewRequest(http.MethodGet, accepted.Header().Get("Location"), nil))
+	body := page.Body.String()
+
+	if strings.Contains(strings.ToLower(body), "<script") {
+		t.Errorf("transactions table must not contain a raw script tag; body = %s", body)
+	}
+	if !strings.Contains(body, "&lt;script&gt;alert(1)&lt;/script&gt;") {
+		t.Errorf("transactions table does not render the description escaped; body = %s", body)
+	}
 }
 
 func TestRouterRejectsMalformedJSONAmountsWithoutAppending(t *testing.T) {
@@ -862,7 +976,8 @@ func TestRouterRejectsInvalidAmountSignsWithoutAppending(t *testing.T) {
 			if got, want := formResponse.Code, http.StatusSeeOther; got != want {
 				t.Errorf("form status = %d, want %d; body = %s", got, want, formResponse.Body.String())
 			}
-			if got, want := formResponse.Header().Get("Location"), "/?account=acct-1&error=amount_malformed"; got != want {
+			wantValue := url.Values{"value": {amount}}.Encode()
+			if got, want := formResponse.Header().Get("Location"), "/?account=acct-1&error=amount_malformed&"+wantValue; got != want {
 				t.Errorf("form Location = %q, want %q", got, want)
 			}
 
@@ -1075,6 +1190,9 @@ func TestRouterServesAccountTransactions(t *testing.T) {
 		}
 		if got, want := response.Error.Code, "account_not_found"; got != want {
 			t.Errorf("error code = %q, want %q", got, want)
+		}
+		if got, want := response.Error.Message, `Account "acct-nope" was not found.`; got != want {
+			t.Errorf("error message = %q, want %q", got, want)
 		}
 	})
 }

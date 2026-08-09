@@ -8,6 +8,11 @@ import (
 	"github.com/jstoup111/ledger-demo/internal/clock"
 )
 
+// MaxDescriptionLength is the maximum number of runes a transaction
+// description may contain. Exported so the HTTP boundary can name the exact
+// limit in a rejection message without duplicating the number.
+const MaxDescriptionLength = 140
+
 // PostTransaction validates and records a transaction for an account.
 func PostTransaction(clock clock.Clock, store Store, accountID string, amount int64, description string) (Transaction, error) {
 	if _, err := store.Account(accountID); err != nil {
@@ -19,7 +24,7 @@ func PostTransaction(clock clock.Clock, store Store, accountID string, amount in
 	if strings.TrimSpace(description) == "" {
 		return Transaction{}, fmt.Errorf("posting transaction: %w", ErrDescriptionEmpty)
 	}
-	if utf8.RuneCountInString(description) > 140 {
+	if utf8.RuneCountInString(description) > MaxDescriptionLength {
 		return Transaction{}, fmt.Errorf("posting transaction: %w", ErrDescriptionTooLong)
 	}
 	balance, err := Balance(store, accountID)

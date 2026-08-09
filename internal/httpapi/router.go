@@ -3,6 +3,7 @@ package httpapi
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"html/template"
 	"io"
@@ -13,6 +14,7 @@ import (
 	"sort"
 	"strconv"
 	"time"
+	"unicode/utf8"
 
 	"github.com/jstoup111/ledger-demo/internal/clock"
 	"github.com/jstoup111/ledger-demo/internal/ledger"
@@ -78,7 +80,7 @@ func handlePage(page *template.Template, store ledger.Store) http.HandlerFunc {
 		}
 		accounts = append([]ledger.Account(nil), accounts...)
 		sort.Slice(accounts, func(i, j int) bool { return accounts[i].ID < accounts[j].ID })
-		data := pageData{ErrorMessage: pageErrorMessage(r.URL.Query().Get("error"))}
+		data := pageData{ErrorMessage: pageErrorMessage(r.URL.Query())}
 		if len(accounts) == 0 {
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")
 			if err := page.Execute(w, data); err != nil {
@@ -108,7 +110,7 @@ func handlePage(page *template.Template, store ledger.Store) http.HandlerFunc {
 			if !found {
 				data.AccountNotFound = true
 				if data.ErrorMessage == "" {
-					data.ErrorMessage = "Account not found."
+					data.ErrorMessage = fmt.Sprintf("Account %q was not found.", requested)
 				}
 				w.Header().Set("Content-Type", "text/html; charset=utf-8")
 				if err := page.Execute(w, data); err != nil {
@@ -149,24 +151,50 @@ func handlePage(page *template.Template, store ledger.Store) http.HandlerFunc {
 	}
 }
 
-func pageErrorMessage(code string) string {
+// pageErrorMessage renders the message for a rejection reached via a direct
+// GET — either bare navigation to /?error=<code> or the reload after a form
+// POST's redirect. Both carry the code and, when the originating rejection
+// had one, the same context query parameters writePostError encodes; see
+// rejectionMessage for the single place that turns those into wording.
+func pageErrorMessage(query url.Values) string {
+	code := query.Get("error")
 	if code == "" {
 		return ""
 	}
+	return rejectionMessage(code, pageRejectionContext(query))
+}
 
-	messages := map[string]string{
-		"account_not_found":         "Account not found.",
-		"amount_zero":               "Amount must not be zero.",
-		"description_empty":         "Description must not be empty.",
-		"description_too_long":      "Description is too long.",
-		"amount_malformed":          "Amount is malformed.",
-		"balance_would_go_negative": "Balance would go negative.",
-		"balance_overflow":          "Balance would overflow.",
+// pageRejectionContext decodes the same query parameters writePostError's
+// redirectQuery encodes, so a reload reconstructs the same context the
+// original rejection had. Any parameter that is missing or unparseable is
+// simply left absent — rejectionMessage always has a generic fallback.
+func pageRejectionContext(query url.Values) rejectionContext {
+	ctx := rejectionContext{accountID: query.Get("account")}
+
+	if value := query.Get("value"); value != "" {
+		ctx.rawAmount = value
+		ctx.hasRawAmount = true
 	}
-	if message, ok := messages[code]; ok {
-		return message
+
+	if raw := query.Get("length"); raw != "" {
+		if length, err := strconv.Atoi(raw); err == nil {
+			ctx.descriptionLength = length
+			ctx.hasDescriptionLength = true
+		}
 	}
-	return "Unable to post transaction."
+
+	rawAttempted, rawBalance := query.Get("attempted"), query.Get("balance")
+	if rawAttempted != "" && rawBalance != "" {
+		attempted, attemptedErr := strconv.ParseInt(rawAttempted, 10, 64)
+		balance, balanceErr := strconv.ParseInt(rawBalance, 10, 64)
+		if attemptedErr == nil && balanceErr == nil {
+			ctx.attempted = attempted
+			ctx.balance = balance
+			ctx.hasBalanceContext = true
+		}
+	}
+
+	return ctx
 }
 
 func formatDollars(cents int64) string {
@@ -276,13 +304,14 @@ func handleAccounts(store ledger.Store) http.HandlerFunc {
 
 func handleAccountTransactions(store ledger.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		transactions, err := store.Transactions(r.PathValue("id"))
+		accountID := r.PathValue("id")
+		transactions, err := store.Transactions(accountID)
 		if err != nil {
 			if codeFor(err).status != 0 {
-				writeJSONError(w, err)
+				writeJSONErrorWithContext(w, err, rejectionContext{accountID: accountID})
 				return
 			}
-			log.Printf("list transactions for account %q: %v", r.PathValue("id"), err)
+			log.Printf("list transactions for account %q: %v", accountID, err)
 			http.Error(w, "list transactions failed", http.StatusInternalServerError)
 			return
 		}
@@ -308,20 +337,25 @@ func handlePostTransaction(store ledger.Store, clock clock.Clock) http.HandlerFu
 		request, jsonResponse, err := postRequest(r)
 		accountID := r.PathValue("id")
 		if err != nil {
-			writePostError(w, r, jsonResponse, accountID, ledger.ErrAmountMalformed)
+			writePostError(w, r, jsonResponse, accountID, ledger.ErrAmountMalformed, rejectionContext{accountID: accountID})
 			return
 		}
 
 		amount, err := parseAmount(request.amount)
 		if err != nil {
-			writePostError(w, r, jsonResponse, accountID, err)
+			writePostError(w, r, jsonResponse, accountID, err, rejectionContext{
+				accountID:    accountID,
+				rawAmount:    request.amount,
+				hasRawAmount: true,
+			})
 			return
 		}
 
 		transaction, err := ledger.PostTransaction(clock, store, accountID, amount, request.description)
 		if err != nil {
 			if codeFor(err).status != 0 {
-				writePostError(w, r, jsonResponse, accountID, err)
+				ctx := postFailureContext(err, store, accountID, amount, request.description)
+				writePostError(w, r, jsonResponse, accountID, err, ctx)
 				return
 			}
 			http.Error(w, "post transaction failed", http.StatusInternalServerError)
@@ -345,14 +379,60 @@ func handlePostTransaction(store ledger.Store, clock clock.Clock) http.HandlerFu
 	}
 }
 
-func writePostError(w http.ResponseWriter, r *http.Request, jsonResponse bool, accountID string, err error) {
+// postFailureContext gathers whatever additional context is on hand for a
+// domain rejection, keyed off the domain sentinel itself (never a scattered
+// re-derivation of the code — codeFor remains the one code mapping). Rules
+// with nothing further to say about themselves (account not found, empty
+// description) get an empty context; rejectionMessage's fallback still names
+// what it already knows (e.g. the account id).
+func postFailureContext(err error, store ledger.Store, accountID string, amount int64, description string) rejectionContext {
+	ctx := rejectionContext{accountID: accountID}
+	switch {
+	case errors.Is(err, ledger.ErrDescriptionTooLong):
+		ctx.descriptionLength = utf8.RuneCountInString(description)
+		ctx.hasDescriptionLength = true
+	case errors.Is(err, ledger.ErrBalanceWouldGoNegative), errors.Is(err, ledger.ErrBalanceOverflow):
+		if balance, balanceErr := ledger.Balance(store, accountID); balanceErr == nil {
+			ctx.attempted = amount
+			ctx.balance = balance
+			ctx.hasBalanceContext = true
+		}
+	}
+	return ctx
+}
+
+func writePostError(w http.ResponseWriter, r *http.Request, jsonResponse bool, accountID string, err error, ctx rejectionContext) {
 	if jsonResponse {
-		writeJSONError(w, err)
+		writeJSONErrorWithContext(w, err, ctx)
 		return
 	}
 
 	log.Printf("post transaction for account %q: %v", accountID, err)
-	http.Redirect(w, r, "/?account="+url.QueryEscape(accountID)+"&error="+url.QueryEscape(codeFor(err).code), http.StatusSeeOther)
+	redirect := "/?account=" + url.QueryEscape(accountID) + "&error=" + url.QueryEscape(codeFor(err).code) + ctx.redirectQuery()
+	http.Redirect(w, r, redirect, http.StatusSeeOther)
+}
+
+// redirectQuery encodes whatever context is present into the extra query
+// parameters a form-post rejection's redirect carries, so the page reload
+// (via pageRejectionContext) can rebuild the same message. The account id
+// itself is not repeated here — it is already the redirect's `account`
+// parameter.
+func (ctx rejectionContext) redirectQuery() string {
+	values := url.Values{}
+	if ctx.hasRawAmount {
+		values.Set("value", ctx.rawAmount)
+	}
+	if ctx.hasDescriptionLength {
+		values.Set("length", strconv.Itoa(ctx.descriptionLength))
+	}
+	if ctx.hasBalanceContext {
+		values.Set("attempted", strconv.FormatInt(ctx.attempted, 10))
+		values.Set("balance", strconv.FormatInt(ctx.balance, 10))
+	}
+	if len(values) == 0 {
+		return ""
+	}
+	return "&" + values.Encode()
 }
 
 type transactionPostRequest struct {
