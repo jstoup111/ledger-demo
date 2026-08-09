@@ -71,12 +71,25 @@ steps:
 # wiring_check, manual_test, retro, remediate, and attribution_verify.
 # `test_suite` and `worktree` are mechanical and dispatch no model at all.
 
-# Required for the native pre-SHIP aggregate gate. Name one project-owned
-# command that composes every authoritative test suite.
-# test_suite:
-#   command: npm test
-#   working_directory: .
-#   timeout_seconds: 1800
+# Required for the native pre-SHIP aggregate gate. Without it the gate reports
+# `missing_config: Project config must declare test_suite` and the SHIP tail
+# cannot complete.
+#
+# `go test ./...` is the whole authoritative suite — unit tests alongside their
+# packages plus the acceptance specs under acceptance/ — so one command composes
+# everything with no per-suite composition needed.
+#
+# 120s is deliberately near the real runtime rather than generous: the ceiling
+# exists to catch a WEDGED run, not a slow one, and a ceiling far above the true
+# cost cannot tell the two apart. Measured 2.5s warm on a fresh worktree; a cold
+# build cache is the only real variable, and that stays well inside 120s. The
+# project convention already caps the suite at 10s (CLAUDE.md), so if this
+# timeout ever starts firing on a healthy run, the suite has outgrown a
+# convention rather than the timeout being wrong.
+test_suite:
+  command: make test
+  working_directory: .
+  timeout_seconds: 120
 
 # complexity:
 #   default_tier: M
