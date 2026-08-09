@@ -60,6 +60,18 @@ obvious from the back of the room.
 - Tables use `border-collapse: collapse` with a bottom rule per row; no zebra striping, no
   vertical rules.
 
+  > **Amended 2026-08-09 by amount-column-and-autofocus:** table cells are left-aligned with one
+  > exception — the **amount column is right-aligned**, heading included, so a column of money
+  > reads with its figures lined up and can be scanned down its right edge at projector distance.
+  > The exception is applied by marking the amount cells (an `amount` class), never by column
+  > position, so that adding or reordering a column on stage cannot silently align the wrong one.
+  > Left alignment remains correct for the description and recorded-at columns: text compares on
+  > its left edge, money on its right.
+
+- The post form's amount field holds the input caret on load, requested declaratively in the
+  delivered markup (there is no JavaScript to place it). Exactly one element on the page may
+  request initial focus, so which field receives the caret is never browser-dependent.
+
 ## Current state
 
 `web/style.css` implements the page-level rules above. The `.balance`, `.error`, and table
