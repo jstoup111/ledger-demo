@@ -110,6 +110,10 @@ func (s *SQLite) Append(transaction ledger.Transaction) error {
 
 // Transactions returns an account's transactions newest first.
 func (s *SQLite) Transactions(accountID string) ([]ledger.Transaction, error) {
+	if _, err := s.Account(accountID); err != nil {
+		return nil, err
+	}
+
 	rows, err := s.db.Query(`
 		SELECT id, account_id, amount, description, created_at
 		FROM transactions
@@ -121,7 +125,7 @@ func (s *SQLite) Transactions(accountID string) ([]ledger.Transaction, error) {
 	}
 	defer rows.Close()
 
-	var transactions []ledger.Transaction
+	transactions := make([]ledger.Transaction, 0)
 	for rows.Next() {
 		var transaction ledger.Transaction
 		var createdAt string

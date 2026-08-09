@@ -1,6 +1,7 @@
 package store
 
 import (
+	"encoding/json"
 	"errors"
 	"reflect"
 	"strings"
@@ -193,6 +194,42 @@ func TestSQLiteTransactionsOrdersSameTimestampByIDDescending(t *testing.T) {
 
 	if got, want := [][]string{transactionIDs(firstRead), transactionIDs(secondRead)}, [][]string{{"txn-0003", "txn-0002", "txn-0001"}, {"txn-0003", "txn-0002", "txn-0001"}}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("Transactions() IDs = %#v, want %#v", got, want)
+	}
+}
+
+func TestSQLiteTransactionsForExistingAccountWithoutRowsReturnsEmptySlice(t *testing.T) {
+	store, err := Open(":memory:")
+	if err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+	t.Cleanup(func() { _ = store.db.Close() })
+
+	if err := store.InsertAccount(ledger.Account{ID: "acct-empty", Name: "Empty"}); err != nil {
+		t.Fatalf("InsertAccount() error = %v", err)
+	}
+
+	transactions, err := store.Transactions("acct-empty")
+	if err != nil {
+		t.Fatalf("Transactions() error = %v", err)
+	}
+	encoded, err := json.Marshal(transactions)
+	if err != nil {
+		t.Fatalf("json.Marshal() error = %v", err)
+	}
+	if got, want := string(encoded), "[]"; got != want {
+		t.Fatalf("Transactions() JSON = %q, want %q", got, want)
+	}
+}
+
+func TestSQLiteTransactionsForUnknownAccountWrapsAccountNotFound(t *testing.T) {
+	store, err := Open(":memory:")
+	if err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+	t.Cleanup(func() { _ = store.db.Close() })
+
+	if _, err := store.Transactions("acct-unknown"); !errors.Is(err, ledger.ErrAccountNotFound) {
+		t.Fatalf("Transactions() error = %v, want error wrapping %v", err, ledger.ErrAccountNotFound)
 	}
 }
 
