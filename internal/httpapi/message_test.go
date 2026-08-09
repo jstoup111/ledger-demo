@@ -226,6 +226,37 @@ func TestMessageForNamesSubmittedCharacterCountForDescriptionTooLong(t *testing.
 	}
 }
 
+func TestMessageForIgnoresCarriedValuesWithoutMeaning(t *testing.T) {
+	values := []struct {
+		name  string
+		value string
+	}{
+		{name: "zero amount", value: "0.00"},
+		{name: "script text", value: "<script>alert(1)</script>"},
+		{name: "five hundred characters", value: strings.Repeat("a", 500)},
+	}
+	identifiers := []struct {
+		name       string
+		identifier string
+		want       string
+	}{
+		{name: "description required", identifier: "description_empty", want: "Description must not be empty."},
+		{name: "first unknown identifier", identifier: "not_a_real_code", want: "Unable to post transaction."},
+		{name: "second unknown identifier", identifier: "another_unknown_code", want: "Unable to post transaction."},
+	}
+
+	for _, identifier := range identifiers {
+		for _, value := range values {
+			t.Run(identifier.name+" with "+value.name, func(t *testing.T) {
+				got := messageFor(identifier.identifier, messageContext{value: value.value})
+				if got != identifier.want || strings.Contains(got, value.value) {
+					t.Errorf("messageFor(%q, value %q) = %q, want %q without the carried value", identifier.identifier, value.value, got, identifier.want)
+				}
+			})
+		}
+	}
+}
+
 func TestMessageForOmitsRejectedDescriptionCharacterCounts(t *testing.T) {
 	tests := []struct {
 		name  string
