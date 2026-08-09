@@ -630,17 +630,32 @@ func TestAcceptanceResetAndRun(t *testing.T) {
 		}
 
 		var ids []string
-		for _, acct := range accounts {
+		for i, acct := range accounts {
 			txs := a.transactions(acct.ID)
-			if len(txs) < 8 || len(txs) > 12 {
-				t.Errorf("account %s has %d transactions, want 8-12", acct.ID, len(txs))
+			// FR-15, amended 2026-08-09: the first two accounts carry 8-12
+			// transactions and the third is seeded EMPTY, so FR-4's empty state is
+			// demonstrable from seed data with no setup. Accounts are ordered by id
+			// ascending, asserted above, so index 2 is the empty one.
+			if i < 2 {
+				if len(txs) < 8 || len(txs) > 12 {
+					t.Errorf("account %s has %d transactions, want 8-12", acct.ID, len(txs))
+				}
+			} else if len(txs) != 0 {
+				t.Errorf("account %s has %d transactions, want 0 — the third account is seeded empty",
+					acct.ID, len(txs))
 			}
 			for _, tx := range txs {
 				ids = append(ids, tx.ID)
 			}
 		}
-		if len(ids) < 24 || len(ids) > 36 {
-			t.Errorf("seeded transaction count = %d, want 24-36", len(ids))
+		if len(ids) < 16 || len(ids) > 24 {
+			t.Errorf("seeded transaction count = %d, want 16-24", len(ids))
+		}
+		// Story 1 and .docs/decisions/api-response-contract.md both use 128350 cents
+		// for the first account; pin it so those worked examples hold against seed
+		// data rather than only against a fixture.
+		if got := a.balanceCents(accounts[0].ID); got != 128350 {
+			t.Errorf("seeded balance for %s = %d, want exactly 128350", accounts[0].ID, got)
 		}
 
 		// One unbroken global sequence, not a per-account restart.

@@ -365,6 +365,12 @@ redone mid-presentation and look exactly like the first attempt.
 - Given any prior database state, when `make reset` runs, then the database file is removed and
   recreated, and it contains exactly three accounts, each with between 8 and 12 transactions.
 
+  > **Amended 2026-08-09 by operator decision (FR-15 reconciliation):** the assertion above is
+  > retained and was inconsistent with this story file's own Story 1 and Story 2, which require
+  > `acct-3` to have none. Effective: three accounts, **two** with 8–12 transactions each and the
+  > **third seeded empty**; the first sums to exactly `128350` cents. See the FR-15 amendment in
+  > `.docs/specs/2026-08-08-base-ledger.md`.
+
   > **Amended 2026-08-08 by base-ledger conflict-check (F3):** every automated test in this story
   > that needs a real file sets `LEDGER_DB_PATH` to a **`t.TempDir()`** path and never touches the
   > default `./ledger.db`. The reset and two-reset-identity assertions are genuinely file-backed —
@@ -401,7 +407,13 @@ redone mid-presentation and look exactly like the first attempt.
   fully — no font fetch, no CDN, no outbound call.
 
 ### Done When
-- [ ] `make reset` produces exactly 3 accounts and between 24 and 36 transactions total.
+- [ ] `make reset` produces exactly 3 accounts and between 16 and 24 transactions total — two
+      accounts carrying 8–12 each and the third empty (amended 2026-08-09; originally "between 24 and
+      36", which assumed all three accounts carried transactions).
+- [ ] The empty seeded account returns `balance_cents: 0` and `[]` from its transactions route, so
+      FR-4's empty state is demonstrable from seed data with no setup.
+- [ ] The first account's seeded transactions sum to exactly `128350` cents, matching the worked
+      example in Story 1 and in the API response contract.
 - [ ] Two consecutive resets produce identical row sets, asserted by comparing all rows including
       `created_at` and ids.
 - [ ] Seeded ids form one global sequence with no per-account restart and no gaps.

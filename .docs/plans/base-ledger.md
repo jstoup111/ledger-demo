@@ -677,15 +677,25 @@ value constructed and passed inward)
 **Type:** happy-path
 
 **Steps:**
-1. Write failing test: seeding an in-memory database produces exactly 3 accounts and between 24 and
-   36 transactions; every id matches `^txn-\d{4}$`; the id set is globally unique and forms one
-   unbroken sequence with no per-account restart; all `created_at` values come from the injected
-   clock. Seeding twice into two fresh databases yields identical rows.
+1. Write failing test: seeding an in-memory database produces exactly 3 accounts and between 16 and
+   24 transactions; the first two accounts carry 8–12 transactions each and the third carries
+   **none**; the first account's amounts sum to exactly `128350` cents; every id matches
+   `^txn-\d{4}$`; the id set is globally unique and forms one unbroken sequence with no per-account
+   restart; all `created_at` values come from the injected clock. Seeding twice into two fresh
+   databases yields identical rows.
 2. Verify test fails (RED)
-3. Implement the seed as literal data — 3 accounts, 8–12 plausible transactions each, fixed
-   timestamps, no randomness, no `time.Now()`.
+3. Implement the seed as literal data — 3 accounts, the first two with 8–12 plausible transactions
+   each summing to `128350` cents for the first, the third deliberately empty, fixed timestamps, no
+   randomness, no `time.Now()`.
 4. Verify test passes (GREEN)
 5. Commit: "cmd/server: load deterministic seed data"
+
+> **Amended 2026-08-09 by operator decision (FR-15 reconciliation):** originally "3 accounts, 8–12
+> plausible transactions each" and "between 24 and 36 transactions", which is retained above in the
+> preceding revision's wording via the FR-15 amendment record. The third account is now seeded empty
+> so FR-4's empty state is reachable on stage, and the first account's sum is pinned to `128350`
+> cents so Story 1's and the API contract's worked examples hold against seed data. `manual_test`
+> kicked this task back twice against the old shape.
 
 **Files:** `cmd/server/seed.go`, `cmd/server/seed_test.go`
 **Wired-into:** `cmd/server/main.go#seed` (the `seed` subcommand `make seed`/`make reset` already run)
