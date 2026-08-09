@@ -31,6 +31,30 @@ type failingRouterStore struct {
 	transactionsErr error
 }
 
+type balanceReadFailsAfterPostingStore struct {
+	ledger.Store
+	transactionsCalls int
+	err               error
+}
+
+func (s *balanceReadFailsAfterPostingStore) Transactions(accountID string) ([]ledger.Transaction, error) {
+	s.transactionsCalls++
+	if s.transactionsCalls > 1 {
+		return nil, s.err
+	}
+	return s.Store.Transactions(accountID)
+}
+
+type transactionCountingRouterStore struct {
+	ledger.Store
+	transactionsCalls int
+}
+
+func (s *transactionCountingRouterStore) Transactions(accountID string) ([]ledger.Transaction, error) {
+	s.transactionsCalls++
+	return s.Store.Transactions(accountID)
+}
+
 func (s failingRouterStore) Accounts() ([]ledger.Account, error) {
 	if s.accountsErr != nil {
 		return nil, s.accountsErr
@@ -731,6 +755,91 @@ func TestRouterJSONPostRejectionsNameTheirContext(t *testing.T) {
 	}
 }
 
+func TestRouterJSONBalanceRejectionNamesDerivedBalance(t *testing.T) {
+	t.Run("accepted JSON post does not reread the balance for rejection detail", func(t *testing.T) {
+		base := &routerTestStore{
+			accounts:     []ledger.Account{{ID: "acct-1", Name: "Checking"}},
+			transactions: map[string][]ledger.Transaction{"acct-1": {{Amount: 128350}}},
+		}
+		store := &transactionCountingRouterStore{Store: base}
+		router, err := NewRouter(store, routerClock)
+		if err != nil {
+			t.Fatalf("NewRouter() error = %v, want nil", err)
+		}
+
+		accepted := postTransaction(router, "/api/accounts/acct-1/transactions", "application/json", `{"amount":"1.00","description":"Coffee"}`)
+		if got, want := accepted.Code, http.StatusCreated; got != want {
+			t.Fatalf("status = %d, want %d; body = %s", got, want, accepted.Body.String())
+		}
+		if got, want := store.transactionsCalls, 1; got != want {
+			t.Errorf("transaction reads after accepted post = %d, want %d", got, want)
+		}
+	})
+
+	t.Run("balance detail matches the account balance endpoint", func(t *testing.T) {
+		store := &routerTestStore{
+			accounts:     []ledger.Account{{ID: "acct-1", Name: "Checking"}},
+			transactions: map[string][]ledger.Transaction{"acct-1": {{Amount: 128350}}},
+		}
+		router, err := NewRouter(store, routerClock)
+		if err != nil {
+			t.Fatalf("NewRouter() error = %v, want nil", err)
+		}
+
+		rejected := postTransaction(router, "/api/accounts/acct-1/transactions", "application/json", `{"amount":"-2000.00","description":"Rent"}`)
+		if got, want := rejected.Code, http.StatusBadRequest; got != want {
+			t.Fatalf("status = %d, want %d; body = %s", got, want, rejected.Body.String())
+		}
+		var rejection errorEnvelope
+		if err := json.Unmarshal(rejected.Body.Bytes(), &rejection); err != nil {
+			t.Fatalf("rejection is not JSON: %v; body = %s", err, rejected.Body.String())
+		}
+		if got, want := rejection.Error.Code, "balance_would_go_negative"; got != want {
+			t.Errorf("error code = %q, want %q", got, want)
+		}
+		if got, want := rejection.Error.Message, "Balance would go negative. Posting -$2,000.00 against a balance of $1,283.50."; got != want {
+			t.Errorf("error message = %q, want %q", got, want)
+		}
+
+		accounts := httptest.NewRecorder()
+		router.ServeHTTP(accounts, httptest.NewRequest(http.MethodGet, "/api/accounts", nil))
+		if got, want := accounts.Code, http.StatusOK; got != want {
+			t.Fatalf("GET /api/accounts status = %d, want %d; body = %s", got, want, accounts.Body.String())
+		}
+		var response []accountResponse
+		if err := json.Unmarshal(accounts.Body.Bytes(), &response); err != nil {
+			t.Fatalf("accounts response is not JSON: %v; body = %s", err, accounts.Body.String())
+		}
+		if got, want := response[0].BalanceCents, int64(128350); got != want {
+			t.Errorf("GET /api/accounts balance_cents = %d, want %d", got, want)
+		}
+	})
+
+	t.Run("a balance read failure keeps the rejection message plain", func(t *testing.T) {
+		base := &routerTestStore{
+			accounts:     []ledger.Account{{ID: "acct-1", Name: "Checking"}},
+			transactions: map[string][]ledger.Transaction{"acct-1": {{Amount: 128350}}},
+		}
+		store := &balanceReadFailsAfterPostingStore{Store: base, err: errors.New("balance read unavailable")}
+		router, err := NewRouter(store, routerClock)
+		if err != nil {
+			t.Fatalf("NewRouter() error = %v, want nil", err)
+		}
+
+		rejected := postTransaction(router, "/api/accounts/acct-1/transactions", "application/json", `{"amount":"-2000.00","description":"Rent"}`)
+		if got, want := rejected.Code, http.StatusBadRequest; got != want {
+			t.Fatalf("status = %d, want %d; body = %s", got, want, rejected.Body.String())
+		}
+		var rejection errorEnvelope
+		if err := json.Unmarshal(rejected.Body.Bytes(), &rejection); err != nil {
+			t.Fatalf("rejection is not JSON: %v; body = %s", err, rejected.Body.String())
+		}
+		if got, want := rejection.Error.Message, "Balance would go negative."; got != want {
+			t.Errorf("error message = %q, want %q", got, want)
+		}
+	})
+}
+
 func TestRouterMapsBalanceOverflowAtBothPostingBoundaries(t *testing.T) {
 	newRouter := func(t *testing.T) (*routerTestStore, http.Handler) {
 		t.Helper()
@@ -830,7 +939,7 @@ func TestRouterMapsBalanceOverflowAtBothPostingBoundaries(t *testing.T) {
 		if got, want := response.Error.Code, "balance_overflow"; got != want {
 			t.Errorf("error code = %q, want %q", got, want)
 		}
-		if got, want := response.Error.Message, "Balance would overflow."; got != want {
+		if got, want := response.Error.Message, "Balance would overflow. Posting $0.01 against a balance of $92,233,720,368,547,758.07."; got != want {
 			t.Errorf("error message = %q, want %q", got, want)
 		}
 		countAfter, err := store.CountTransactions()

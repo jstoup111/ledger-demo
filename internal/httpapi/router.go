@@ -321,8 +321,16 @@ func handlePostTransaction(store ledger.Store, clock clock.Clock) http.HandlerFu
 
 		transaction, err := ledger.PostTransaction(clock, store, accountID, amount, request.description)
 		if err != nil {
-			if codeFor(err).status != 0 {
-				writePostError(w, r, jsonResponse, accountID, err, postRejectionContext(request, amount, accountID, err))
+			coded := codeFor(err)
+			if coded.status != 0 {
+				context := postRejectionContext(request, amount, accountID, err)
+				if jsonResponse && (coded.code == "balance_would_go_negative" || coded.code == "balance_overflow") {
+					if balance, balanceErr := ledger.Balance(store, accountID); balanceErr == nil {
+						context.balance = balance
+						context.balanceKnown = true
+					}
+				}
+				writePostError(w, r, jsonResponse, accountID, err, context)
 				return
 			}
 			http.Error(w, "post transaction failed", http.StatusInternalServerError)
