@@ -62,6 +62,55 @@ rejection because its subject is that a URL code becomes a visible panel.
 None beyond the existing checkout. `modernc.org/sqlite` is already pinned in `go.mod`/`go.sum` by the
 blank import in `internal/store/sqlite.go`, deliberately so the build needs no network.
 
+> **Amended 2026-08-09 by operator review — build_review scope gap `test:build-review-config`:** the
+> assertion above is retained, and was too narrow. This feature does require one harness-configuration
+> change, scoped by `Task harness-config` below. `build_review` correctly flagged
+> `.ai-conductor/config.yml` as modified with no plan task describing it.
+
+### Task harness-config: Declare the aggregate test command and the acceptance-spec location
+**Story:** Story 6 / FR-15 and FR-16 (the reset/run commands the demo is operated by)
+**Type:** infrastructure
+
+Recorded after the fact by operator review, not authored ahead of BUILD. It scopes a change BUILD had
+already made out of plan; it is written here so the diff is described by the plan rather than to
+request new work.
+
+**Steps:**
+1. Declare `test_suite.command` so the pre-SHIP aggregate gate has one project-owned command
+   composing the whole authoritative suite. Without it that gate returns
+   `missing_config: Project config must declare test_suite` and the SHIP tail cannot complete.
+2. Record where acceptance specs live, so the `acceptance_specs` gate resolves them. The gate's
+   built-in globs are Ruby/JS-shaped and match `test/acceptance/**/*` but not a top-level
+   `acceptance/`, which cost this feature two provider attempts before the specs were relocated.
+3. Verification is limited to harness configuration: `conduct-ts` loads the config without error and
+   the two gates above resolve. No product behavior is touched and no Go file changes.
+
+**Files:** `.ai-conductor/config.yml`
+**Wired-into:** none (no new production surface — consumed by the engine's own gates, not by this
+project's code)
+**Dependencies:** none
+
+## BUILD-entry artifacts not authored by any plan task
+
+> **Added 2026-08-09 by operator review — build_review scope gap `test:build-review-acceptance`:**
+> `build_review` correctly found ~1,180 lines in the two files below present in no plan task's
+> `Files:` list.
+
+| Artifact | Owner | Constrains |
+|---|---|---|
+| `test/acceptance/ledger_acceptance_test.go` | `/writing-system-tests` (BUILD entry, before implementation) | Stories 1–6; the RED targets for Tasks 10, 18, 19–28 |
+| `test/acceptance/harness_test.go` | `/writing-system-tests` (BUILD entry, before implementation) | Shared fixture for the above: builds `./cmd/server`, runs `seed`/`serve` on a free port |
+
+These are **not** work any implementation task performs, and ownership is not reassigned to one. They
+are the acceptance-spec artifacts the `acceptance_specs` step authors at BUILD entry, and they are
+recorded here only so the plan describes the diff. Regenerating them, or changing product behavior to
+suit them, is explicitly out of scope for this remediation.
+
+Two known defects in `harness_test.go` are deliberately **not** fixed here, to avoid adding further
+unplanned acceptance-spec diff to a scope finding: `waitReady` busy-waits on `net.Dial` with no yield
+for up to 15s per server start, and `startServer`'s child survives an interrupted `go test` (it
+stranded a server on port 8080 for 90 minutes). Both are queued for a separate pass.
+
 ## Tasks
 
 ### Batch A — Domain shape and injectable time
@@ -98,8 +147,19 @@ inward, per architecture-review Wiring Surface)
 5. Commit: "ledger: add Account and Transaction types"
 
 **Files:** `internal/ledger/ledger.go`, `internal/ledger/ledger_test.go`, `internal/ledger/doc.go`
-**Wired-into:** `internal/store/sqlite.go#InsertAccount`, `internal/store/sqlite.go#Append`
+**Wired-into:** `internal/store/sqlite.go#scanTransaction`, `internal/httpapi/router.go#NewRouter`
 **Dependencies:** none
+
+> **Amended 2026-08-09 by operator review — build_review scope gap `test:build-review-plan`:** the
+> approved `Wired-into:` assertion above is retained verbatim and remains the record of what DECIDE
+> authorized. It was wrong on both symbols: `scanTransaction` is a name this plan invented and the
+> implementation never created, and `NewRouter` consumes the router's dependencies rather than being
+> where these types are wired. The as-built call sites are
+> `internal/store/sqlite.go#InsertAccount` and `internal/store/sqlite.go#Append`, which BUILD
+> substituted directly into this line — a feature-authored edit to a sealed DECIDE artifact, which is
+> the scope failure `build_review` correctly caught. This note authorizes the as-built mapping as the
+> effective contract for the §12 as-built reachability sweep. No product behavior changes; only the
+> recorded wiring contract is corrected.
 
 ### Task 3: Six distinct sentinel errors
 **Story:** Story 5 (each rule reports its own sentinel)
