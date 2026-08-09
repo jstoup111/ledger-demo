@@ -35,7 +35,7 @@ func loadSeedData(clock clock.Clock, database *store.SQLite) error {
 
 var demoSeed = []seedAccount{
 	{
-		account: ledger.Account{ID: "acct-checking", Name: "Everyday Checking"},
+		account: ledger.Account{ID: "acct-1", Name: "Everyday Checking"},
 		transactions: []seedTransaction{
 			{amount: 245000, description: "Paycheck"},
 			{amount: -6450, description: "Grocery market"},
@@ -49,7 +49,7 @@ var demoSeed = []seedAccount{
 		},
 	},
 	{
-		account: ledger.Account{ID: "acct-savings", Name: "Weekend Savings"},
+		account: ledger.Account{ID: "acct-2", Name: "Weekend Savings"},
 		transactions: []seedTransaction{
 			{amount: 850000, description: "Opening balance"},
 			{amount: 30000, description: "Automatic transfer"},
@@ -63,7 +63,7 @@ var demoSeed = []seedAccount{
 		},
 	},
 	{
-		account: ledger.Account{ID: "acct-project", Name: "Project Fund"},
+		account: ledger.Account{ID: "acct-3", Name: "Project Fund"},
 		transactions: []seedTransaction{
 			{amount: 180000, description: "Project budget"},
 			{amount: -24000, description: "Materials shop"},

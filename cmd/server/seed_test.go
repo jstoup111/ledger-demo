@@ -26,6 +26,9 @@ func TestLoadSeedDataIsDeterministic(t *testing.T) {
 	if len(first.accounts) != 3 {
 		t.Fatalf("seed accounts = %d, want 3", len(first.accounts))
 	}
+	if got, want := []string{first.accounts[0].ID, first.accounts[1].ID, first.accounts[2].ID}, []string{"acct-1", "acct-2", "acct-3"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("seed account IDs = %v, want %v", got, want)
+	}
 	if len(first.transactions) < 24 || len(first.transactions) > 36 {
 		t.Fatalf("seed transactions = %d, want 24-36", len(first.transactions))
 	}
