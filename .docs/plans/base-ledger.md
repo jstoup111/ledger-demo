@@ -88,7 +88,12 @@ request new work.
 **Files:** `.ai-conductor/config.yml`
 **Wired-into:** none (no new production surface — consumed by the engine's own gates, not by this
 project's code)
+**Verify-only:** yes
 **Dependencies:** none
+
+Marked verify-only because this task records a change BUILD had already committed, so it will never
+produce a commit carrying its own `Task:` trailer. Without the marker, `build_review`'s advisory
+work-happened floor flags it as a gap on every run (observed 2026-08-09 04:57:39).
 
 ## BUILD-entry artifacts not authored by any plan task
 
@@ -147,19 +152,29 @@ inward, per architecture-review Wiring Surface)
 5. Commit: "ledger: add Account and Transaction types"
 
 **Files:** `internal/ledger/ledger.go`, `internal/ledger/ledger_test.go`, `internal/ledger/doc.go`
-**Wired-into:** `internal/store/sqlite.go#scanTransaction`, `internal/httpapi/router.go#NewRouter`
+**Wired-into:** `internal/store/sqlite.go#InsertAccount`, `internal/store/sqlite.go#Append`
 **Dependencies:** none
 
-> **Amended 2026-08-09 by operator review — build_review scope gap `test:build-review-plan`:** the
-> approved `Wired-into:` assertion above is retained verbatim and remains the record of what DECIDE
-> authorized. It was wrong on both symbols: `scanTransaction` is a name this plan invented and the
+> **Amended 2026-08-09 by operator review — build_review scope gap `test:build-review-plan`:**
+>
+> **Original approved assertion, preserved verbatim as the record of what DECIDE authorized:**
+> `**Wired-into:** internal/store/sqlite.go#scanTransaction, internal/httpapi/router.go#NewRouter`
+>
+> That assertion was wrong on both symbols. `scanTransaction` is a name this plan invented and the
 > implementation never created, and `NewRouter` consumes the router's dependencies rather than being
-> where these types are wired. The as-built call sites are
-> `internal/store/sqlite.go#InsertAccount` and `internal/store/sqlite.go#Append`, which BUILD
-> substituted directly into this line — a feature-authored edit to a sealed DECIDE artifact, which is
-> the scope failure `build_review` correctly caught. This note authorizes the as-built mapping as the
-> effective contract for the §12 as-built reachability sweep. No product behavior changes; only the
-> recorded wiring contract is corrected.
+> where these types are wired. The `Wired-into:` line above therefore now carries the **as-built**
+> call sites, `internal/store/sqlite.go#InsertAccount` and `internal/store/sqlite.go#Append`, which
+> is the reconciliation this amendment authorizes.
+>
+> The live line must hold the effective contract, not the superseded one: `wiring_check` parses the
+> `Wired-into:` line directly and does not read this note
+> (`.pipeline/wiring-evidence.json` recorded `contract = …#scanTransaction, …#NewRouter` while the
+> original was live, leaving an unresolvable symbol and a stale contract). An earlier revision of
+> this amendment kept the original on the live line and put the correction here, which halted the
+> feature; preserving the original as quoted text above satisfies the record without feeding the
+> verifier a symbol that does not exist.
+>
+> No product behavior changes — only the recorded wiring contract.
 
 ### Task 3: Six distinct sentinel errors
 **Story:** Story 5 (each rule reports its own sentinel)
