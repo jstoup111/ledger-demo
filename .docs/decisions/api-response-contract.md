@@ -67,6 +67,28 @@ When the request body is `application/x-www-form-urlencoded`, the same endpoint 
 `303 See Other` with `Location: /?account={id}`, so a reload does not re-record the transaction.
 On rejection it redirects to `/?account={id}&error={code}` and the page renders the message.
 
+> **Amended 2026-08-09 by rejection-message-detail (DECIDE):** the assertion above is retained and is
+> still correct for the success redirect and for two of the seven rejections. The rejection redirect
+> now also carries an optional third parameter, so that the page can name the value that was rejected
+> and not only the rule:
+>
+> ```
+> /?account={id}&error={code}&detail={value}
+> ```
+>
+> `detail` is percent-encoded and is present **only** for the five codes that define one:
+> `amount_zero` and `amount_malformed` carry the submitted amount verbatim (at most 32 characters, no
+> control characters, suppressed rather than truncated when longer); `description_too_long` carries the
+> submitted description's character count in decimal; `balance_would_go_negative` and
+> `balance_overflow` carry the attempted amount in **integer cents**. `account_not_found` needs none —
+> the id is already the `account` value — and `description_empty` has no value to name.
+>
+> `detail` is client-supplied and therefore untrusted exactly as `error` and `account` are. It is
+> validated on every read, ignored when it fails validation (the message then falls back to the plain
+> sentence for its code, whole), never echoed for an unrecognized code, and escaped at output. No
+> balance is ever carried in the address — a balance named in a message is derived server-side.
+> Mechanism and validation rules: `adr-2026-08-09-rejection-message-composition.md`.
+
 **Negotiation rule, stated exhaustively so there is no undefined case:** the JSON branch is taken
 when the request's `Content-Type` is `application/json`. **Every other value, including a missing
 `Content-Type`, takes the form branch.** Form-encoded is the default because a browser form post is
@@ -89,6 +111,27 @@ One shape, always:
 ```
 
 `code` is stable and machine-readable; `message` is human-readable and is what the page displays.
+
+> **Amended 2026-08-09 by rejection-message-detail (DECIDE):** the assertion above is retained and is
+> the load-bearing one. Two clarifications, neither of which changes a `code`:
+>
+> 1. **`code` is a frozen contract; `message` is not.** The `code` values, their HTTP statuses, and the
+>    `{"error":{"code","message"}}` shape do not change. The `message` string now names the offending
+>    value where there is one — for example `Amount is malformed. Submitted: 12.3.4.` The enriched text
+>    is **additive**: it begins with the exact sentence in the table below, so a consumer matching on
+>    the old sentence still matches, and the old sentence is what a message falls back to when the
+>    value is unavailable. Required text:
+>    `.docs/specs/2026-08-09-rejection-message-detail.md` FR-1. **No field is added to the error
+>    body** — the value lives inside `message` and nowhere else.
+> 2. **The code table below lists six codes; there are seven.** `balance_overflow` (`400`) has existed
+>    in `internal/httpapi/errors.go` and in the page's message table since base-ledger shipped, and is
+>    reached when a transaction would push the balance past the 64-bit cents ceiling. It is part of the
+>    same frozen set, and this amendment records it rather than leaving the contract one row short of
+>    the code. The count "six error codes" in this document's preamble is likewise retained as written
+>    and reads as seven.
+>
+> The page and the programmatic response are required to render the **identical** message for the same
+> rejection (FR-4), which is why both now compose it in one place.
 
 | `code` | HTTP | Rule | FR |
 |---|---|---|---|
