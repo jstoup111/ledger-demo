@@ -1,8 +1,6 @@
 // Package store implements the ledger.Store interface against SQLite.
 //
-// This package is deliberately empty; it is built during the demo.
-//
-// When it is built, it owns the SQLite persistence layer via modernc.org/sqlite
+// It owns the SQLite persistence layer via modernc.org/sqlite
 // (pure Go, no CGO): file-backed for the server, in-memory for tests. The
 // interface it satisfies is declared in internal/ledger, not here — the
 // dependency points inward.
