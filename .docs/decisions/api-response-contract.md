@@ -6,6 +6,12 @@
 The contract stories assert against. Deliberately tiny: three JSON endpoints, one error shape, six
 error codes. No envelope, no pagination, no versioning — this API is read by `curl` on a projector.
 
+> **Amended 2026-08-09 by `spec/document-the-balance-overflow-error-code-in-the-ac`:** the shipped API
+> emits **seven** error codes, not six. `balance_overflow` was added during implementation — after this
+> contract was accepted on 2026-08-08 — and is documented in the error table below. The count above is
+> left as originally written; "six error codes" is accurate as of the accepted 2026-08-08 contract and
+> stale as of the shipped API.
+
 ## Conventions
 
 | Rule | Value |
@@ -80,6 +86,11 @@ client-supplied. A value that is not one of the six codes below renders a **gene
 message. It never renders an empty panel, and it is escaped on output like any other untrusted
 value.
 
+> **Amended 2026-08-09 by `spec/document-the-balance-overflow-error-code-in-the-ac`:** read "the six
+> codes below" as **the seven codes below** — `balance_overflow` renders its own message, not the
+> generic one. The rule itself is unchanged: any code outside the documented set renders the generic
+> message, escaped, never an empty panel.
+
 ## Error responses
 
 One shape, always:
@@ -98,6 +109,16 @@ One shape, always:
 | `description_too_long` | `400` | Description exceeds 140 characters | FR-12d |
 | `amount_malformed` | `400` | Amount is not a well-formed money value | FR-12e |
 | `balance_would_go_negative` | `400` | The transaction would take the balance below zero; nothing is recorded | FR-12f |
+| `balance_overflow` | `400` | Folding the account's signed `int64` cents would overflow `int64`; nothing is recorded | — (added during implementation) |
+
+> **Amended 2026-08-09 by `spec/document-the-balance-overflow-error-code-in-the-ac`:** the
+> `balance_overflow` row is **added**, not changed — no existing code string, HTTP status, or rule was
+> touched. It has no FR because it was not foreseen when this contract was accepted on 2026-08-08. It
+> was introduced during implementation by the `checkedAdd` guard in `internal/ledger/balance.go`, which
+> refuses a fold that would overflow `int64`, and mapped at the boundary in `internal/httpapi/errors.go`
+> (commit `85df875`). The guard is load-bearing and stays: summing signed `int64` cents genuinely can
+> overflow, and an unguarded fold would wrap silently and report a wrong balance. Documenting it here
+> makes the shipped set of seven codes the contract, closing a gap in the document — not in the code.
 
 Each code corresponds 1:1 to a domain sentinel error, mapped once at the HTTP boundary
 (`adr-2026-08-08-sentinel-errors-for-domain-failures.md`). Tests assert both `errors.Is` on the
