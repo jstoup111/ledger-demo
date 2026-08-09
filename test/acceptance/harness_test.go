@@ -9,8 +9,8 @@
 //
 // Conventions this file inherits from the project:
 //   - stdlib testing only, table-driven, no testify and no mocking library
-//   - no time.Sleep anywhere (NFR-4) and no time.Now() anywhere (Story 6 asserts
-//     exactly one time.Now() call site in the repository, inside SystemClock).
+//   - no time.Sleep anywhere (NFR-4); Story 6 permits one system-clock call
+//     site in the repository, inside SystemClock.
 //     Readiness therefore uses a deadline-bounded dial loop over time.After.
 //   - the default ./ledger.db is never touched (conflict-check F3)
 package acceptance
