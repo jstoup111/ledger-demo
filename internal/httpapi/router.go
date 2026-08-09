@@ -6,6 +6,7 @@ import (
 	"html/template"
 	"net/http"
 	"sort"
+	"time"
 
 	"github.com/jstoup111/ledger-demo/internal/ledger"
 	"github.com/jstoup111/ledger-demo/web"
@@ -30,6 +31,7 @@ func NewRouter(store ledger.Store) (http.Handler, error) {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/accounts", handleAccounts(store))
+	mux.HandleFunc("GET /api/accounts/{id}/transactions", handleAccountTransactions(store))
 	mux.Handle("GET /style.css", http.FileServerFS(web.FS))
 	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -45,6 +47,14 @@ type accountResponse struct {
 	ID           string `json:"id"`
 	Name         string `json:"name"`
 	BalanceCents int64  `json:"balance_cents"`
+}
+
+type transactionResponse struct {
+	ID          string `json:"id"`
+	AccountID   string `json:"account_id"`
+	AmountCents int64  `json:"amount_cents"`
+	Description string `json:"description"`
+	CreatedAt   string `json:"created_at"`
 }
 
 func handleAccounts(store ledger.Store) http.HandlerFunc {
@@ -69,6 +79,34 @@ func handleAccounts(store ledger.Store) http.HandlerFunc {
 				ID:           account.ID,
 				Name:         account.Name,
 				BalanceCents: balance,
+			})
+		}
+
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		_ = json.NewEncoder(w).Encode(response)
+	}
+}
+
+func handleAccountTransactions(store ledger.Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		transactions, err := store.Transactions(r.PathValue("id"))
+		if err != nil {
+			if codeFor(err).status != 0 {
+				writeJSONError(w, err)
+				return
+			}
+			http.Error(w, "list transactions failed", http.StatusInternalServerError)
+			return
+		}
+
+		response := make([]transactionResponse, 0, len(transactions))
+		for _, transaction := range transactions {
+			response = append(response, transactionResponse{
+				ID:          transaction.ID,
+				AccountID:   transaction.AccountID,
+				AmountCents: transaction.Amount,
+				Description: transaction.Description,
+				CreatedAt:   transaction.CreatedAt.UTC().Format(time.RFC3339),
 			})
 		}
 
