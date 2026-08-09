@@ -4,10 +4,14 @@ package httpapi
 import (
 	"encoding/json"
 	"html/template"
+	"io"
+	"mime"
 	"net/http"
+	"net/url"
 	"sort"
 	"time"
 
+	"github.com/jstoup111/ledger-demo/internal/clock"
 	"github.com/jstoup111/ledger-demo/internal/ledger"
 	"github.com/jstoup111/ledger-demo/web"
 )
@@ -32,6 +36,7 @@ func NewRouter(store ledger.Store) (http.Handler, error) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/accounts", handleAccounts(store))
 	mux.HandleFunc("GET /api/accounts/{id}/transactions", handleAccountTransactions(store))
+	mux.HandleFunc("POST /api/accounts/{id}/transactions", handlePostTransaction(store))
 	mux.Handle("GET /style.css", http.FileServerFS(web.FS))
 	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -157,4 +162,75 @@ func handleAccountTransactions(store ledger.Store) http.HandlerFunc {
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
 		_ = json.NewEncoder(w).Encode(response)
 	}
+}
+
+func handlePostTransaction(store ledger.Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		request, jsonResponse, err := postRequest(r)
+		if err != nil {
+			writeJSONError(w, ledger.ErrAmountMalformed)
+			return
+		}
+
+		amount, err := parseAmount(request.amount)
+		if err != nil {
+			writeJSONError(w, err)
+			return
+		}
+
+		accountID := r.PathValue("id")
+		transaction, err := ledger.PostTransaction(clock.SystemClock{}, store, accountID, amount, request.description)
+		if err != nil {
+			if codeFor(err).status != 0 {
+				writeJSONError(w, err)
+				return
+			}
+			http.Error(w, "post transaction failed", http.StatusInternalServerError)
+			return
+		}
+
+		if !jsonResponse {
+			http.Redirect(w, r, "/?account="+url.QueryEscape(accountID), http.StatusSeeOther)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		w.WriteHeader(http.StatusCreated)
+		_ = json.NewEncoder(w).Encode(transactionResponse{
+			ID:          transaction.ID,
+			AccountID:   transaction.AccountID,
+			AmountCents: transaction.Amount,
+			Description: transaction.Description,
+			CreatedAt:   transaction.CreatedAt.UTC().Format(time.RFC3339),
+		})
+	}
+}
+
+type transactionPostRequest struct {
+	amount      string
+	description string
+}
+
+func postRequest(r *http.Request) (transactionPostRequest, bool, error) {
+	mediaType, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
+	if err == nil && mediaType == "application/json" {
+		var request struct {
+			Amount      string `json:"amount"`
+			Description string `json:"description"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			return transactionPostRequest{}, true, err
+		}
+		return transactionPostRequest{amount: request.Amount, description: request.Description}, true, nil
+	}
+
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		return transactionPostRequest{}, false, err
+	}
+	values, err := url.ParseQuery(string(body))
+	if err != nil {
+		return transactionPostRequest{}, false, err
+	}
+	return transactionPostRequest{amount: values.Get("amount"), description: values.Get("description")}, false, nil
 }
