@@ -206,6 +206,7 @@ func TestRouterRendersAccountPageMarkup(t *testing.T) {
 			`class="balance">$1,283.50`,
 			`class="selected-account">Selected account: Checking`,
 			`<form method="post" action="/api/accounts/acct-1/transactions">`,
+			`<input name="amount" required autofocus>`,
 		} {
 			if !strings.Contains(body, markup) {
 				t.Errorf("page does not contain %q; body = %s", markup, body)
@@ -285,7 +286,7 @@ func TestRouterRendersAccountPageMarkup(t *testing.T) {
 			if !ok {
 				t.Fatalf("missing independently authored amount for transaction %q", transaction.Description)
 			}
-			row := "<tr><td>" + transaction.Description + "</td><td>" + expectedAmount + "</td><td>" + transaction.CreatedAt + "</td></tr>"
+			row := `<tr><td>` + transaction.Description + `</td><td class="amount">` + expectedAmount + `</td><td>` + transaction.CreatedAt + `</td></tr>`
 			if !strings.Contains(body, row) {
 				t.Errorf("selected account page does not render formatted transaction row %q; body = %s", row, body)
 			}
@@ -335,6 +336,9 @@ func TestRouterRendersPageErrorStates(t *testing.T) {
 		formPosition := strings.Index(body, "<form")
 		if balancePosition < 0 || balancePosition >= errorPosition || panelEndOffset < 0 || formPosition < 0 || strings.TrimSpace(body[errorPosition+panelEndOffset+len("</p>"):formPosition]) != "" {
 			t.Errorf("error panel must follow the balance and immediately precede the form; body = %s", body)
+		}
+		if !strings.Contains(body, `<input name="amount" required autofocus>`) {
+			t.Errorf("form retains autofocus on the amount field even when an error panel is shown; body = %s", body)
 		}
 	})
 
@@ -406,6 +410,9 @@ func TestRouterRendersPageErrorStates(t *testing.T) {
 		if !strings.Contains(body, "Account not found.") || strings.Contains(body, `class="balance"`) || strings.Contains(body, "<form") || strings.Contains(body, `aria-label="Transactions"`) {
 			t.Errorf("unknown account page must show the selector and not-found message only; body = %s", body)
 		}
+		if strings.Contains(body, "autofocus") {
+			t.Errorf("unknown account page renders no form and must not contain autofocus; body = %s", body)
+		}
 	})
 
 	t.Run("script-like unknown account is rendered escaped", func(t *testing.T) {
@@ -448,6 +455,9 @@ func TestRouterRendersPageErrorStates(t *testing.T) {
 		}
 		if strings.Contains(body, "<form") || strings.Contains(body, `action=""`) {
 			t.Errorf("zero-account page must not render a posting form; body = %s", body)
+		}
+		if strings.Contains(body, "autofocus") {
+			t.Errorf("zero-account page renders no form and must not contain autofocus; body = %s", body)
 		}
 	})
 }

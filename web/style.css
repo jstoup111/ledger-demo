@@ -58,3 +58,7 @@ th, td {
   padding: 0.6rem;
   text-align: left;
 }
+
+.amount {
+  text-align: right;
+}

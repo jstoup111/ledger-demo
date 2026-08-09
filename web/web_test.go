@@ -26,6 +26,7 @@ func TestEmbeddedStylesheetActivatesBalanceErrorAndTableRules(t *testing.T) {
 		"selected account body scale": regexp.MustCompile(`(?s)\.selected-account\s*\{[^}]*font-size:\s*1rem;[^}]*font-weight:\s*(?:400|normal);[^}]*\}`),
 		"error":                       regexp.MustCompile(`(?s)\.error\s*\{[^}]*background:\s*#fdecea;[^}]*border-left:\s*6px\s+solid\s+#b3261e;[^}]*\}`),
 		"table":                       regexp.MustCompile(`(?s)table\s*\{[^}]*border-collapse:\s*collapse;[^}]*\}`),
+		"right-aligned amount column": regexp.MustCompile(`(?s)\.amount\s*\{[^}]*text-align:\s*right;[^}]*\}`),
 	} {
 		if !rule.MatchString(activeCSS) {
 			t.Errorf("active stylesheet is missing the required %s rule", name)
