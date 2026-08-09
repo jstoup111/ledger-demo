@@ -74,15 +74,15 @@ func handlePage(page *template.Template, store ledger.Store) http.HandlerFunc {
 		}
 		accounts = append([]ledger.Account(nil), accounts...)
 		sort.Slice(accounts, func(i, j int) bool { return accounts[i].ID < accounts[j].ID })
+		data := pageData{ErrorMessage: pageErrorMessage(r.URL.Query().Get("error"))}
 		if len(accounts) == 0 {
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")
-			if err := page.Execute(w, pageData{}); err != nil {
+			if err := page.Execute(w, data); err != nil {
 				http.Error(w, "template render failed", http.StatusInternalServerError)
 			}
 			return
 		}
 
-		data := pageData{}
 		for _, account := range accounts {
 			data.Accounts = append(data.Accounts, pageAccount{
 				Name: account.Name,
@@ -102,7 +102,9 @@ func handlePage(page *template.Template, store ledger.Store) http.HandlerFunc {
 			}
 			if !found {
 				data.AccountNotFound = true
-				data.ErrorMessage = "Account not found."
+				if data.ErrorMessage == "" {
+					data.ErrorMessage = "Account not found."
+				}
 				w.Header().Set("Content-Type", "text/html; charset=utf-8")
 				if err := page.Execute(w, data); err != nil {
 					http.Error(w, "template render failed", http.StatusInternalServerError)
@@ -123,7 +125,6 @@ func handlePage(page *template.Template, store ledger.Store) http.HandlerFunc {
 		}
 
 		data.Balance = formatDollars(balance)
-		data.ErrorMessage = pageErrorMessage(r.URL.Query().Get("error"))
 		data.FormAction = "/api/accounts/" + url.PathEscape(selected.ID) + "/transactions"
 		data.Transactions = make([]pageTransaction, 0, len(transactions))
 		for _, transaction := range transactions {

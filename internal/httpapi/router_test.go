@@ -299,6 +299,28 @@ func TestRouterRendersPageErrorStates(t *testing.T) {
 		}
 	})
 
+	t.Run("specified error codes render their matching messages", func(t *testing.T) {
+		for _, tt := range []struct {
+			code    string
+			message string
+		}{
+			{code: "account_not_found", message: "Account not found."},
+			{code: "amount_zero", message: "Amount must not be zero."},
+			{code: "description_too_long", message: "Description is too long."},
+			{code: "amount_malformed", message: "Amount is malformed."},
+			{code: "balance_would_go_negative", message: "Balance would go negative."},
+		} {
+			t.Run(tt.code, func(t *testing.T) {
+				rec := httptest.NewRecorder()
+				router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/?account=acct-1&error="+tt.code, nil))
+				_, panel := pageErrorPanel(t, rec.Body.String())
+				if !strings.Contains(panel, tt.message) {
+					t.Errorf("error=%q panel = %q, want %q", tt.code, panel, tt.message)
+				}
+			})
+		}
+	})
+
 	t.Run("unknown error codes render the same non-empty generic panel without echoing the code", func(t *testing.T) {
 		const firstUnknownCode = "not_a_real_code"
 		const secondUnknownCode = "another_unknown_code"
@@ -344,6 +366,36 @@ func TestRouterRendersPageErrorStates(t *testing.T) {
 		}
 		if !strings.Contains(body, "Account not found.") || strings.Contains(body, `class="balance"`) || strings.Contains(body, "<form") || strings.Contains(body, `aria-label="Transactions"`) {
 			t.Errorf("unknown account page must show the selector and not-found message only; body = %s", body)
+		}
+	})
+
+	t.Run("unknown account preserves a specific requested error", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/?account=acct-nope&error=amount_malformed", nil))
+		body := rec.Body.String()
+
+		_, panel := pageErrorPanel(t, body)
+		if !strings.Contains(panel, "Amount is malformed.") {
+			t.Errorf("error panel = %q, want requested error message", panel)
+		}
+	})
+
+	t.Run("zero-account page preserves its requested error and omits the posting form", func(t *testing.T) {
+		emptyRouter, err := NewRouter(&routerTestStore{}, routerClock)
+		if err != nil {
+			t.Fatalf("NewRouter() error = %v, want nil", err)
+		}
+
+		rec := httptest.NewRecorder()
+		emptyRouter.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/?error=amount_malformed", nil))
+		body := rec.Body.String()
+
+		_, panel := pageErrorPanel(t, body)
+		if !strings.Contains(panel, "Amount is malformed.") {
+			t.Errorf("error panel = %q, want requested error message", panel)
+		}
+		if strings.Contains(body, "<form") || strings.Contains(body, `action=""`) {
+			t.Errorf("zero-account page must not render a posting form; body = %s", body)
 		}
 	})
 }

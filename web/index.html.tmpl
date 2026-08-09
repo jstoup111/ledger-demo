@@ -13,20 +13,21 @@
       {{range .Accounts}}<a href="{{.Link}}">{{.Name}}</a>{{end}}
     </nav>
 
-    {{if .AccountNotFound}}
-    <p class="error">{{.ErrorMessage}}</p>
-    {{else}}
-    <p class="balance">{{.Balance}}</p>
-
     {{if .ErrorMessage}}
     <p class="error">{{.ErrorMessage}}</p>
     {{end}}
 
+    {{if .AccountNotFound}}
+    {{else}}
+    <p class="balance">{{.Balance}}</p>
+
+    {{if .FormAction}}
     <form method="post" action="{{.FormAction}}">
       <label>Amount <input name="amount" required></label>
       <label>Description <input name="description" required></label>
       <button type="submit">Post transaction</button>
     </form>
+    {{end}}
 
     <section aria-label="Transactions">
       {{if .Transactions}}
