@@ -476,6 +476,78 @@ func TestRouterRendersPageErrorStates(t *testing.T) {
 	})
 }
 
+func TestRouterComposesDetailedPageRejectionMessages(t *testing.T) {
+	store := routerTestStore{
+		accounts: []ledger.Account{{ID: "acct-1", Name: "Checking"}},
+		transactions: map[string][]ledger.Transaction{
+			"acct-1": {{ID: "txn-0001", AccountID: "acct-1", Amount: 10000, Description: "Opening balance"}},
+		},
+	}
+	router, err := NewRouter(&store, routerClock)
+	if err != nil {
+		t.Fatalf("NewRouter() error = %v, want nil", err)
+	}
+
+	for _, tt := range []struct {
+		name string
+		path string
+		want string
+	}{
+		{
+			name: "malformed amount carries the submitted value",
+			path: "/?account=acct-1&error=amount_malformed&detail=12.3.4",
+			want: "Amount is malformed. Submitted: 12.3.4.",
+		},
+		{
+			name: "description count carries the submitted count",
+			path: "/?account=acct-1&error=description_too_long&detail=141",
+			want: "Description is too long. Submitted: 141 characters; the limit is 140.",
+		},
+		{
+			name: "negative balance rejection uses the derived balance",
+			path: "/?account=acct-1&error=balance_would_go_negative&detail=-20000",
+			want: "Balance would go negative. Posting -$200.00 against a balance of $100.00.",
+		},
+		{
+			name: "overflow balance rejection uses the derived balance",
+			path: "/?account=acct-1&error=balance_overflow&detail=9223372036854775807",
+			want: "Balance would overflow. Posting $92,233,720,368,547,758.07 against a balance of $100.00.",
+		},
+		{
+			name: "unknown account identifies the requested account",
+			path: "/?account=acct-nope",
+			want: "Account not found. Requested: acct-nope.",
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, tt.path, nil))
+			body := rec.Body.String()
+
+			panelPosition, panel := pageErrorPanel(t, body)
+			if got := strings.TrimSpace(panel); got != tt.want {
+				t.Errorf("error panel = %q, want %q", got, tt.want)
+			}
+			if strings.Contains(tt.path, "account=acct-1") {
+				balancePosition := strings.Index(body, `class="balance"`)
+				panelEnd := panelPosition + strings.Index(body[panelPosition:], "</p>") + len("</p>")
+				formPosition := strings.Index(body, "<form")
+				if balancePosition < 0 || balancePosition >= panelPosition || formPosition < 0 || panelEnd > formPosition || strings.TrimSpace(body[panelEnd:formPosition]) != "" {
+					t.Errorf("error panel must follow the balance and immediately precede the form; body = %s", body)
+				}
+			}
+		})
+	}
+
+	t.Run("no error parameter renders no panel", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/?account=acct-1", nil))
+		if strings.Contains(rec.Body.String(), `class="error"`) {
+			t.Errorf("page without an error parameter rendered an error panel; body = %s", rec.Body.String())
+		}
+	})
+}
+
 func pageErrorPanel(t *testing.T, body string) (int, string) {
 	t.Helper()
 

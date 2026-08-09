@@ -79,8 +79,16 @@ func handlePage(page *template.Template, store ledger.Store) http.HandlerFunc {
 		}
 		accounts = append([]ledger.Account(nil), accounts...)
 		sort.Slice(accounts, func(i, j int) bool { return accounts[i].ID < accounts[j].ID })
-		data := pageData{ErrorMessage: pageErrorMessage(r.URL.Query().Get("error"))}
+		query := r.URL.Query()
+		errorCode := query.Get("error")
+		detail := query.Get("detail")
+		requested := query.Get("account")
+		data := pageData{RequestedAccount: requested}
 		if len(accounts) == 0 {
+			data.ErrorMessage = messageFor(errorCode, messageContext{
+				value:     detail,
+				accountID: requested,
+			})
 			w.Header().Set("Content-Type", "text/html; charset=utf-8")
 			if err := page.Execute(w, data); err != nil {
 				http.Error(w, "template render failed", http.StatusInternalServerError)
@@ -96,8 +104,7 @@ func handlePage(page *template.Template, store ledger.Store) http.HandlerFunc {
 		}
 
 		selected := accounts[0]
-		if requested := r.URL.Query().Get("account"); requested != "" {
-			data.RequestedAccount = requested
+		if requested != "" {
 			found := false
 			for _, account := range accounts {
 				if account.ID == requested {
@@ -108,9 +115,13 @@ func handlePage(page *template.Template, store ledger.Store) http.HandlerFunc {
 			}
 			if !found {
 				data.AccountNotFound = true
-				if data.ErrorMessage == "" {
-					data.ErrorMessage = "Account not found."
+				if errorCode == "" {
+					errorCode = "account_not_found"
 				}
+				data.ErrorMessage = messageFor(errorCode, messageContext{
+					value:     detail,
+					accountID: requested,
+				})
 				w.Header().Set("Content-Type", "text/html; charset=utf-8")
 				if err := page.Execute(w, data); err != nil {
 					http.Error(w, "template render failed", http.StatusInternalServerError)
@@ -124,6 +135,12 @@ func handlePage(page *template.Template, store ledger.Store) http.HandlerFunc {
 			http.Error(w, "derive balance failed", http.StatusInternalServerError)
 			return
 		}
+		data.ErrorMessage = messageFor(errorCode, messageContext{
+			value:        detail,
+			accountID:    requested,
+			balance:      balance,
+			balanceKnown: true,
+		})
 		transactions, err := store.Transactions(selected.ID)
 		if err != nil {
 			http.Error(w, "list transactions failed", http.StatusInternalServerError)
@@ -148,26 +165,6 @@ func handlePage(page *template.Template, store ledger.Store) http.HandlerFunc {
 			http.Error(w, "template render failed", http.StatusInternalServerError)
 		}
 	}
-}
-
-func pageErrorMessage(code string) string {
-	if code == "" {
-		return ""
-	}
-
-	messages := map[string]string{
-		"account_not_found":         "Account not found.",
-		"amount_zero":               "Amount must not be zero.",
-		"description_empty":         "Description must not be empty.",
-		"description_too_long":      "Description is too long.",
-		"amount_malformed":          "Amount is malformed.",
-		"balance_would_go_negative": "Balance would go negative.",
-		"balance_overflow":          "Balance would overflow.",
-	}
-	if message, ok := messages[code]; ok {
-		return message
-	}
-	return "Unable to post transaction."
 }
 
 func formatDollars(cents int64) string {
