@@ -56,8 +56,10 @@ func TestLoadSeedDataIsDeterministic(t *testing.T) {
 	if acct1Balance != 128350 {
 		t.Fatalf("acct-1 balance = %d cents, want 128350", acct1Balance)
 	}
-	if got := len(perAccount["acct-3"]); got != 0 {
-		t.Fatalf("acct-3 transactions = %d, want 0", got)
+	for _, account := range first.accounts {
+		if got := len(perAccount[account.ID]); got < 8 || got > 12 {
+			t.Fatalf("account %q transactions = %d, want 8-12", account.ID, got)
+		}
 	}
 	for number := 1; number <= len(first.transactions); number++ {
 		id := fmt.Sprintf("txn-%04d", number)

@@ -70,5 +70,15 @@ var demoSeed = []seedAccount{
 	},
 	{
 		account: ledger.Account{ID: "acct-3", Name: "Project Fund"},
+		transactions: []seedTransaction{
+			{amount: 200000, description: "Project budget"},
+			{amount: -18500, description: "Design software"},
+			{amount: -7200, description: "Prototype materials"},
+			{amount: 35000, description: "Client deposit"},
+			{amount: -12400, description: "Workshop rental"},
+			{amount: -3600, description: "Printing costs"},
+			{amount: 12500, description: "Project rebate"},
+			{amount: -8900, description: "Team lunch"},
+		},
 	},
 }
