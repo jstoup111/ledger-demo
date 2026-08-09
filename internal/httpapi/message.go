@@ -39,7 +39,7 @@ func messageFor(identifier string, context messageContext) string {
 		}
 		return "Description is too long."
 	case "amount_malformed":
-		if value, ok := freeTextCarriedValue(context.value); ok {
+		if value, ok := malformedAmountCarriedValue(context.value); ok {
 			return "Amount is malformed. Submitted: " + value + "."
 		}
 		return "Amount is malformed."
@@ -101,6 +101,16 @@ func zeroAmountCarriedValue(value string) (string, bool) {
 
 	_, err := parseAmount(value)
 	return value, errors.Is(err, ledger.ErrAmountZero)
+}
+
+func malformedAmountCarriedValue(value string) (string, bool) {
+	value, ok := freeTextCarriedValue(value)
+	if !ok {
+		return "", false
+	}
+
+	_, err := parseAmount(value)
+	return value, errors.Is(err, ledger.ErrAmountMalformed)
 }
 
 func characterCountCarriedValue(value string) (string, bool) {

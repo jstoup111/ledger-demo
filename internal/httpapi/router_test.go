@@ -578,6 +578,36 @@ func TestRouterComposesDetailedPageRejectionMessages(t *testing.T) {
 				omitted: "bad\nvalue",
 			},
 			{
+				name:    "malformed amount with a plausible decimal detail",
+				path:    "/?account=acct-1&error=amount_malformed&detail=12.50",
+				want:    "Amount is malformed.",
+				omitted: "12.50",
+			},
+			{
+				name:    "malformed amount with a plausible whole number detail",
+				path:    "/?account=acct-1&error=amount_malformed&detail=500",
+				want:    "Amount is malformed.",
+				omitted: "500",
+			},
+			{
+				name:    "malformed amount with a plausible negative decimal detail",
+				path:    "/?account=acct-1&error=amount_malformed&detail=-12.50",
+				want:    "Amount is malformed.",
+				omitted: "-12.50",
+			},
+			{
+				name:    "malformed amount with a plausible zero decimal detail",
+				path:    "/?account=acct-1&error=amount_malformed&detail=0.00",
+				want:    "Amount is malformed.",
+				omitted: "0.00",
+			},
+			{
+				name:    "malformed amount with the largest plausible decimal detail",
+				path:    "/?account=acct-1&error=amount_malformed&detail=92233720368547758.07",
+				want:    "Amount is malformed.",
+				omitted: "92233720368547758.07",
+			},
+			{
 				name:    "zero amount with non-zero detail",
 				path:    "/?account=acct-1&error=amount_zero&detail=5.00",
 				want:    "Amount must not be zero.",
@@ -635,8 +665,8 @@ func TestRouterComposesDetailedPageRejectionMessages(t *testing.T) {
 				if got := strings.TrimSpace(panel); got != tt.want {
 					t.Errorf("error panel = %q, want %q", got, tt.want)
 				}
-				if tt.omitted != "" && strings.Contains(body, tt.omitted) {
-					t.Errorf("page rendered tampered detail %q; body = %s", tt.omitted, body)
+				if tt.omitted != "" && strings.Contains(panel, tt.omitted) {
+					t.Errorf("error panel rendered tampered detail %q; panel = %s", tt.omitted, panel)
 				}
 			})
 		}
@@ -765,6 +795,28 @@ func pageErrorPanel(t *testing.T, body string) (int, string) {
 		t.Fatalf("error-class element is not closed; body = %s", body)
 	}
 	return elementPosition, body[contentStart : contentStart+closingTagOffset]
+}
+
+func TestPostRedirectDetailScreensAmountMalformedDetails(t *testing.T) {
+	for _, tt := range []struct {
+		name   string
+		detail string
+		want   string
+	}{
+		{name: "plausible decimal", detail: "12.50", want: ""},
+		{name: "plausible whole number", detail: "500", want: ""},
+		{name: "plausible negative decimal", detail: "-12.50", want: ""},
+		{name: "plausible zero decimal", detail: "0.00", want: ""},
+		{name: "largest plausible decimal", detail: "92233720368547758.07", want: ""},
+		{name: "multiple decimal points", detail: "12.3.4", want: "12.3.4"},
+		{name: "script-bearing text", detail: "<script>alert(1)</script>", want: "<script>alert(1)</script>"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := postRedirectDetail("amount_malformed", tt.detail); got != tt.want {
+				t.Errorf("postRedirectDetail(amount_malformed, %q) = %q, want %q", tt.detail, got, tt.want)
+			}
+		})
+	}
 }
 
 func TestRouterPostsTransactionsForJSONAndFormRequests(t *testing.T) {
@@ -1685,6 +1737,66 @@ func TestRouterRejectsInvalidAmountSignsWithoutAppending(t *testing.T) {
 			}
 			if got, want := countAfter, countBefore; got != want {
 				t.Errorf("transactions after rejected posts = %d, want %d", got, want)
+			}
+		})
+	}
+}
+
+func TestRouterEnrichesMalformedAmountMessagesConsistentlyForPageAndJSON(t *testing.T) {
+	for _, tt := range []struct {
+		name     string
+		amount   string
+		wantPage string
+		wantJSON string
+	}{
+		{
+			name:     "multiple decimal points",
+			amount:   "12.3.4",
+			wantPage: "Amount is malformed. Submitted: 12.3.4.",
+			wantJSON: "Amount is malformed. Submitted: 12.3.4.",
+		},
+		{
+			name:     "script-bearing text",
+			amount:   "<script>alert(1)</script>",
+			wantPage: "Amount is malformed. Submitted: &lt;script&gt;alert(1)&lt;/script&gt;.",
+			wantJSON: "Amount is malformed. Submitted: <script>alert(1)</script>.",
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			store := &routerTestStore{
+				accounts:     []ledger.Account{{ID: "acct-1", Name: "Checking"}},
+				transactions: map[string][]ledger.Transaction{"acct-1": {{Amount: 10000}}},
+			}
+			router, err := NewRouter(store, routerClock)
+			if err != nil {
+				t.Fatalf("NewRouter() error = %v, want nil", err)
+			}
+
+			form := postTransaction(router, "/api/accounts/acct-1/transactions", "application/x-www-form-urlencoded", url.Values{"amount": {tt.amount}, "description": {"Coffee"}}.Encode())
+			if got, want := form.Code, http.StatusSeeOther; got != want {
+				t.Fatalf("form status = %d, want %d; body = %s", got, want, form.Body.String())
+			}
+			page := httptest.NewRecorder()
+			router.ServeHTTP(page, httptest.NewRequest(http.MethodGet, form.Header().Get("Location"), nil))
+			_, panel := pageErrorPanel(t, page.Body.String())
+			if got := strings.TrimSpace(panel); got != tt.wantPage {
+				t.Errorf("page error panel = %q, want %q", got, tt.wantPage)
+			}
+
+			body, err := json.Marshal(map[string]string{"amount": tt.amount, "description": "Coffee"})
+			if err != nil {
+				t.Fatalf("json.Marshal() error = %v", err)
+			}
+			jsonResponse := postTransaction(router, "/api/accounts/acct-1/transactions", "application/json", string(body))
+			if got, want := jsonResponse.Code, http.StatusBadRequest; got != want {
+				t.Fatalf("JSON status = %d, want %d; body = %s", got, want, jsonResponse.Body.String())
+			}
+			var response errorEnvelope
+			if err := json.Unmarshal(jsonResponse.Body.Bytes(), &response); err != nil {
+				t.Fatalf("JSON response is not JSON: %v; body = %s", err, jsonResponse.Body.String())
+			}
+			if got := response.Error.Message; got != tt.wantJSON {
+				t.Errorf("JSON error message = %q, want %q", got, tt.wantJSON)
 			}
 		})
 	}

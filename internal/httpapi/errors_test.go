@@ -84,6 +84,35 @@ func TestWriteJSONErrorEncodesExactErrorEnvelope(t *testing.T) {
 	}
 }
 
+func TestWriteJSONErrorScreensAmountMalformedDetails(t *testing.T) {
+	for _, tt := range []struct {
+		name   string
+		detail string
+		want   string
+	}{
+		{name: "plausible decimal", detail: "12.50", want: "Amount is malformed."},
+		{name: "plausible whole number", detail: "500", want: "Amount is malformed."},
+		{name: "plausible negative decimal", detail: "-12.50", want: "Amount is malformed."},
+		{name: "plausible zero decimal", detail: "0.00", want: "Amount is malformed."},
+		{name: "largest plausible decimal", detail: "92233720368547758.07", want: "Amount is malformed."},
+		{name: "multiple decimal points", detail: "12.3.4", want: "Amount is malformed. Submitted: 12.3.4."},
+		{name: "script-bearing text", detail: "<script>alert(1)</script>", want: "Amount is malformed. Submitted: <script>alert(1)</script>."},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			writeJSONError(recorder, fmt.Errorf("parse amount: %w", ledger.ErrAmountMalformed), messageContext{value: tt.detail})
+
+			var response errorEnvelope
+			if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+				t.Fatalf("response is not JSON: %v; body = %s", err, recorder.Body.String())
+			}
+			if got := response.Error.Message; got != tt.want {
+				t.Errorf("message for detail %q = %q, want %q", tt.detail, got, tt.want)
+			}
+		})
+	}
+}
+
 func TestWriteJSONErrorUsesStableGenericEnvelopeForUnmappedErrors(t *testing.T) {
 	first := httptest.NewRecorder()
 	second := httptest.NewRecorder()

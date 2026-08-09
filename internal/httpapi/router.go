@@ -386,7 +386,7 @@ func postRedirectDetail(code, value string) string {
 			return detail
 		}
 	case "amount_malformed":
-		if detail, ok := freeTextCarriedValue(value); ok {
+		if detail, ok := malformedAmountCarriedValue(value); ok {
 			return detail
 		}
 	case "description_too_long":
