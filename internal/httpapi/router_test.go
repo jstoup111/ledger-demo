@@ -614,6 +614,36 @@ func TestRouterComposesDetailedPageRejectionMessages(t *testing.T) {
 		}
 	})
 
+	t.Run("implausible requested account IDs degrade the error panel", func(t *testing.T) {
+		for _, tt := range []struct {
+			name string
+			path string
+		}{
+			{
+				name: "absent requested account ID",
+				path: "/?error=account_not_found",
+			},
+			{
+				name: "over-long requested account ID",
+				path: "/?account=" + strings.Repeat("a", 33),
+			},
+			{
+				name: "control-character-bearing requested account ID",
+				path: "/?account=acct%0Anope",
+			},
+		} {
+			t.Run(tt.name, func(t *testing.T) {
+				rec := httptest.NewRecorder()
+				router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, tt.path, nil))
+
+				_, panel := pageErrorPanel(t, rec.Body.String())
+				if got, want := strings.TrimSpace(panel), "Account not found."; got != want {
+					t.Errorf("error panel = %q, want %q", got, want)
+				}
+			})
+		}
+	})
+
 	t.Run("script-like amount detail is escaped visible text", func(t *testing.T) {
 		rec := httptest.NewRecorder()
 		router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/?account=acct-1&error=amount_malformed&detail=%3Cscript%3Ealert%281%29%3C%2Fscript%3E", nil))
@@ -1097,6 +1127,22 @@ func TestRouterJSONPostRejectionsNameTheirContext(t *testing.T) {
 			message: "Account not found. Requested: acct-nope.",
 		},
 		{
+			name:    "over-long missing account ID degrades to plain message",
+			path:    "/api/accounts/" + strings.Repeat("a", 33) + "/transactions",
+			body:    `{"amount":"1.00","description":"Coffee"}`,
+			status:  http.StatusNotFound,
+			code:    "account_not_found",
+			message: "Account not found.",
+		},
+		{
+			name:    "control-character-bearing missing account ID degrades to plain message",
+			path:    "/api/accounts/acct%0Anope/transactions",
+			body:    `{"amount":"1.00","description":"Coffee"}`,
+			status:  http.StatusNotFound,
+			code:    "account_not_found",
+			message: "Account not found.",
+		},
+		{
 			name:    "blank description remains plain sentence",
 			path:    "/api/accounts/acct-1/transactions",
 			body:    `{"amount":"1.00","description":""}`,
@@ -1125,6 +1171,21 @@ func TestRouterJSONPostRejectionsNameTheirContext(t *testing.T) {
 				t.Errorf("error message = %q, want %q", got, want)
 			}
 		})
+	}
+}
+
+func TestRouterJSONPostErrorWithAbsentAccountIDUsesPlainNotFoundMessage(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/api/accounts//transactions", nil)
+
+	writePostError(recorder, request, true, "", ledger.ErrAccountNotFound, messageContext{})
+
+	var response errorEnvelope
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("response is not JSON: %v; body = %s", err, recorder.Body.String())
+	}
+	if got, want := response.Error.Message, "Account not found."; got != want {
+		t.Errorf("error message = %q, want %q", got, want)
 	}
 }
 

@@ -18,8 +18,8 @@ func messageFor(identifier string, context messageContext) string {
 	case "":
 		return ""
 	case "account_not_found":
-		if context.accountID != "" {
-			return "Account not found. Requested: " + context.accountID + "."
+		if accountID, ok := freeTextCarriedValue(context.accountID); ok {
+			return "Account not found. Requested: " + accountID + "."
 		}
 		return "Account not found."
 	case "amount_zero":

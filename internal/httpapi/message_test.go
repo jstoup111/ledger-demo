@@ -55,6 +55,16 @@ func TestMessageForIncludesRequestedAccountOnlyForAccountNotFound(t *testing.T) 
 			want:    "Account not found.",
 		},
 		{
+			name:    "omits over-long requested account ID",
+			context: messageContext{accountID: strings.Repeat("a", 33)},
+			want:    "Account not found.",
+		},
+		{
+			name:    "omits control-character-bearing requested account ID",
+			context: messageContext{accountID: "acct\nnope"},
+			want:    "Account not found.",
+		},
+		{
 			name:    "ignores carried value",
 			context: messageContext{value: "ignored"},
 			want:    "Account not found.",
