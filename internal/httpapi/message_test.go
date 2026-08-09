@@ -182,7 +182,7 @@ func TestMessageForNamesPostingAndBalanceForBalanceRejections(t *testing.T) {
 				balance:      128350,
 				balanceKnown: true,
 			},
-			want: "Balance would overflow. Posting -$2,000.00 against a balance of $1,283.50.",
+			want: "Balance would overflow.",
 		},
 		{
 			name:       "negative balance with unknown balance",

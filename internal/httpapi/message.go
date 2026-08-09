@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"math"
 	"strconv"
 	"unicode"
 	"unicode/utf8"
@@ -40,15 +41,15 @@ func messageFor(identifier string, context messageContext) string {
 		}
 		return "Amount is malformed."
 	case "balance_would_go_negative":
-		return balanceRejectionMessage("Balance would go negative.", context)
+		return balanceRejectionMessage(identifier, "Balance would go negative.", context)
 	case "balance_overflow":
-		return balanceRejectionMessage("Balance would overflow.", context)
+		return balanceRejectionMessage(identifier, "Balance would overflow.", context)
 	default:
 		return "Unable to post transaction."
 	}
 }
 
-func balanceRejectionMessage(message string, context messageContext) string {
+func balanceRejectionMessage(identifier, message string, context messageContext) string {
 	value, ok := integerCentsCarriedValue(context.value)
 	if !ok || !context.balanceKnown {
 		return message
@@ -56,6 +57,19 @@ func balanceRejectionMessage(message string, context messageContext) string {
 
 	cents, err := strconv.ParseInt(value, 10, 64)
 	if err != nil {
+		return message
+	}
+
+	switch identifier {
+	case "balance_would_go_negative":
+		if !(context.balance >= 0 && cents < 0 && cents < -context.balance) {
+			return message
+		}
+	case "balance_overflow":
+		if cents <= 0 || context.balance < 0 || cents <= math.MaxInt64-context.balance {
+			return message
+		}
+	default:
 		return message
 	}
 
