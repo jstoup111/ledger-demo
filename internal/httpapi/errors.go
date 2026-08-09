@@ -41,17 +41,21 @@ func codeFor(err error) codedError {
 	}
 }
 
-func writeJSONError(w http.ResponseWriter, err error) {
+func writeJSONError(w http.ResponseWriter, err error, contexts ...messageContext) {
 	coded := codeFor(err)
 	if coded.status == 0 {
 		coded = codedError{http.StatusInternalServerError, "internal_error"}
+	}
+	context := messageContext{}
+	if len(contexts) != 0 {
+		context = contexts[0]
 	}
 	w.Header().Set("Content-Type", "application/json; charset=utf-8")
 	w.WriteHeader(coded.status)
 
 	response := errorEnvelope{}
 	response.Error.Code = coded.code
-	response.Error.Message = messageFor(coded.code, messageContext{})
+	response.Error.Message = messageFor(coded.code, context)
 	body, _ := json.Marshal(response)
 	_, _ = w.Write(body)
 }

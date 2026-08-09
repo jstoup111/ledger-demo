@@ -13,6 +13,7 @@ import (
 	"sort"
 	"strconv"
 	"time"
+	"unicode/utf8"
 
 	"github.com/jstoup111/ledger-demo/internal/clock"
 	"github.com/jstoup111/ledger-demo/internal/ledger"
@@ -308,20 +309,20 @@ func handlePostTransaction(store ledger.Store, clock clock.Clock) http.HandlerFu
 		request, jsonResponse, err := postRequest(r)
 		accountID := r.PathValue("id")
 		if err != nil {
-			writePostError(w, r, jsonResponse, accountID, ledger.ErrAmountMalformed)
+			writePostError(w, r, jsonResponse, accountID, ledger.ErrAmountMalformed, messageContext{accountID: accountID})
 			return
 		}
 
 		amount, err := parseAmount(request.amount)
 		if err != nil {
-			writePostError(w, r, jsonResponse, accountID, err)
+			writePostError(w, r, jsonResponse, accountID, err, postRejectionContext(request, amount, accountID, err))
 			return
 		}
 
 		transaction, err := ledger.PostTransaction(clock, store, accountID, amount, request.description)
 		if err != nil {
 			if codeFor(err).status != 0 {
-				writePostError(w, r, jsonResponse, accountID, err)
+				writePostError(w, r, jsonResponse, accountID, err, postRejectionContext(request, amount, accountID, err))
 				return
 			}
 			http.Error(w, "post transaction failed", http.StatusInternalServerError)
@@ -345,9 +346,22 @@ func handlePostTransaction(store ledger.Store, clock clock.Clock) http.HandlerFu
 	}
 }
 
-func writePostError(w http.ResponseWriter, r *http.Request, jsonResponse bool, accountID string, err error) {
+func postRejectionContext(request transactionPostRequest, amount int64, accountID string, err error) messageContext {
+	context := messageContext{accountID: accountID}
+	switch codeFor(err).code {
+	case "amount_zero", "amount_malformed":
+		context.value = request.amount
+	case "description_too_long":
+		context.value = strconv.Itoa(utf8.RuneCountInString(request.description))
+	case "balance_would_go_negative", "balance_overflow":
+		context.value = strconv.FormatInt(amount, 10)
+	}
+	return context
+}
+
+func writePostError(w http.ResponseWriter, r *http.Request, jsonResponse bool, accountID string, err error, context messageContext) {
 	if jsonResponse {
-		writeJSONError(w, err)
+		writeJSONError(w, err, context)
 		return
 	}
 

@@ -646,6 +646,91 @@ func TestRouterNegotiatesCodedPostErrorsByContentType(t *testing.T) {
 	}
 }
 
+func TestRouterJSONPostRejectionsNameTheirContext(t *testing.T) {
+	store := &routerTestStore{
+		accounts:     []ledger.Account{{ID: "acct-1", Name: "Checking"}},
+		transactions: map[string][]ledger.Transaction{},
+	}
+	router, err := NewRouter(store, routerClock)
+	if err != nil {
+		t.Fatalf("NewRouter() error = %v, want nil", err)
+	}
+
+	description := strings.Repeat("🙂", 187)
+	for _, tt := range []struct {
+		name      string
+		path      string
+		body      string
+		status    int
+		code      string
+		message   string
+		exactBody string
+	}{
+		{
+			name:      "malformed amount names submitted amount",
+			path:      "/api/accounts/acct-1/transactions",
+			body:      `{"amount":"12.3.4","description":"Coffee"}`,
+			status:    http.StatusBadRequest,
+			code:      "amount_malformed",
+			message:   "Amount is malformed. Submitted: 12.3.4.",
+			exactBody: `{"error":{"code":"amount_malformed","message":"Amount is malformed. Submitted: 12.3.4."}}`,
+		},
+		{
+			name:    "zero amount names submitted amount",
+			path:    "/api/accounts/acct-1/transactions",
+			body:    `{"amount":"0.00","description":"Coffee"}`,
+			status:  http.StatusBadRequest,
+			code:    "amount_zero",
+			message: "Amount must not be zero. Submitted: 0.00.",
+		},
+		{
+			name:    "long description names rune count",
+			path:    "/api/accounts/acct-1/transactions",
+			body:    `{"amount":"1.00","description":"` + description + `"}`,
+			status:  http.StatusBadRequest,
+			code:    "description_too_long",
+			message: "Description is too long. Submitted: 187 characters; the limit is 140.",
+		},
+		{
+			name:    "missing account names requested id",
+			path:    "/api/accounts/acct-nope/transactions",
+			body:    `{"amount":"1.00","description":"Coffee"}`,
+			status:  http.StatusNotFound,
+			code:    "account_not_found",
+			message: "Account not found. Requested: acct-nope.",
+		},
+		{
+			name:    "blank description remains plain sentence",
+			path:    "/api/accounts/acct-1/transactions",
+			body:    `{"amount":"1.00","description":""}`,
+			status:  http.StatusBadRequest,
+			code:    "description_empty",
+			message: "Description must not be empty.",
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			recorder := postTransaction(router, tt.path, "application/json", tt.body)
+			if got, want := recorder.Code, tt.status; got != want {
+				t.Fatalf("status = %d, want %d; body = %s", got, want, recorder.Body.String())
+			}
+			if tt.exactBody != "" && recorder.Body.String() != tt.exactBody {
+				t.Fatalf("body = %q, want %q", recorder.Body.String(), tt.exactBody)
+			}
+
+			var response errorEnvelope
+			if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+				t.Fatalf("response is not JSON: %v; body = %s", err, recorder.Body.String())
+			}
+			if got, want := response.Error.Code, tt.code; got != want {
+				t.Errorf("error code = %q, want %q", got, want)
+			}
+			if got, want := response.Error.Message, tt.message; got != want {
+				t.Errorf("error message = %q, want %q", got, want)
+			}
+		})
+	}
+}
+
 func TestRouterMapsBalanceOverflowAtBothPostingBoundaries(t *testing.T) {
 	newRouter := func(t *testing.T) (*routerTestStore, http.Handler) {
 		t.Helper()
