@@ -29,10 +29,6 @@ func TestLoadSeedDataIsDeterministic(t *testing.T) {
 	if got, want := []string{first.accounts[0].ID, first.accounts[1].ID, first.accounts[2].ID}, []string{"acct-1", "acct-2", "acct-3"}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("seed account IDs = %v, want %v", got, want)
 	}
-	if len(first.transactions) < 16 || len(first.transactions) > 24 {
-		t.Fatalf("seed transactions = %d, want 16-24", len(first.transactions))
-	}
-
 	idPattern := regexp.MustCompile(`^txn-\d{4}$`)
 	seenIDs := make(map[string]bool, len(first.transactions))
 	perAccount := make(map[string][]ledger.Transaction, len(first.accounts))
@@ -55,6 +51,16 @@ func TestLoadSeedDataIsDeterministic(t *testing.T) {
 	}
 	if acct1Balance != 128350 {
 		t.Fatalf("acct-1 balance = %d cents, want 128350", acct1Balance)
+	}
+	for _, transaction := range perAccount["acct-2"] {
+		for _, forbidden := range []string{"transfer", "interest", "fee"} {
+			if regexp.MustCompile(`(?i)` + forbidden).MatchString(transaction.Description) {
+				t.Fatalf("acct-2 transaction %q uses forbidden non-goal term %q", transaction.Description, forbidden)
+			}
+		}
+	}
+	if len(first.transactions) < 16 || len(first.transactions) > 24 {
+		t.Fatalf("seed transactions = %d, want 16-24", len(first.transactions))
 	}
 	// FR-15, amended 2026-08-09: the first two accounts carry 8-12 transactions
 	// and acct-3 is seeded EMPTY, so FR-4's empty-history state is reachable on
