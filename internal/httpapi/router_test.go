@@ -637,7 +637,11 @@ func TestRouterNegotiatesCodedPostErrorsByContentType(t *testing.T) {
 			if got, want := form.Code, http.StatusSeeOther; got != want {
 				t.Fatalf("form status = %d, want %d; body = %s", got, want, form.Body.String())
 			}
-			if got, want := form.Header().Get("Location"), "/?account="+url.QueryEscape(strings.TrimSuffix(strings.TrimPrefix(tt.path, "/api/accounts/"), "/transactions"))+"&error="+tt.code; got != want {
+			wantLocation := "/?account=" + url.QueryEscape(strings.TrimSuffix(strings.TrimPrefix(tt.path, "/api/accounts/"), "/transactions")) + "&error=" + tt.code
+			if tt.code == "amount_malformed" {
+				wantLocation += "&detail=bad"
+			}
+			if got, want := form.Header().Get("Location"), wantLocation; got != want {
 				t.Errorf("form Location = %q, want %q", got, want)
 			}
 
@@ -665,6 +669,100 @@ func TestRouterNegotiatesCodedPostErrorsByContentType(t *testing.T) {
 			}
 			if got, want := countAfter, countBefore; got != want {
 				t.Errorf("transactions after rejected form and JSON posts = %d, want %d", got, want)
+			}
+		})
+	}
+}
+
+func TestRouterFormPostRejectionRedirectCarriesDetail(t *testing.T) {
+	longAmount := strings.Repeat("1", 33)
+	longDescription := strings.Repeat("x", 141)
+
+	for _, tt := range []struct {
+		name         string
+		accountID    string
+		transactions map[string][]ledger.Transaction
+		body         string
+		code         string
+		detail       string
+	}{
+		{
+			name:      "zero amount",
+			accountID: "acct-1",
+			body:      "amount=0.00&description=Coffee",
+			code:      "amount_zero",
+			detail:    "0.00",
+		},
+		{
+			name:      "malformed amount",
+			accountID: "acct-1",
+			body:      "amount=12.3.4&description=Coffee",
+			code:      "amount_malformed",
+			detail:    "12.3.4",
+		},
+		{
+			name:      "long description",
+			accountID: "acct-1",
+			body:      "amount=1.00&description=" + longDescription,
+			code:      "description_too_long",
+			detail:    "141",
+		},
+		{
+			name:         "negative resulting balance",
+			accountID:    "acct-1",
+			transactions: map[string][]ledger.Transaction{"acct-1": {{Amount: 100}}},
+			body:         "amount=-2.00&description=Coffee",
+			code:         "balance_would_go_negative",
+			detail:       "-200",
+		},
+		{
+			name:         "balance overflow",
+			accountID:    "acct-1",
+			transactions: map[string][]ledger.Transaction{"acct-1": {{Amount: math.MaxInt64}}},
+			body:         "amount=0.01&description=Coffee",
+			code:         "balance_overflow",
+			detail:       "1",
+		},
+		{
+			name:      "unknown account",
+			accountID: "acct &",
+			body:      "amount=1.00&description=Coffee",
+			code:      "account_not_found",
+		},
+		{
+			name:      "empty description",
+			accountID: "acct-1",
+			body:      "amount=1.00&description=",
+			code:      "description_empty",
+		},
+		{
+			name:      "overlong submitted amount is omitted rather than truncated",
+			accountID: "acct &",
+			body:      "amount=" + longAmount + "&description=Coffee",
+			code:      "amount_malformed",
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			store := &routerTestStore{
+				accounts:     []ledger.Account{{ID: "acct-1", Name: "Checking"}},
+				transactions: tt.transactions,
+			}
+			router, err := NewRouter(store, routerClock)
+			if err != nil {
+				t.Fatalf("NewRouter() error = %v, want nil", err)
+			}
+
+			response := postTransaction(router, "/api/accounts/"+url.PathEscape(tt.accountID)+"/transactions", "application/x-www-form-urlencoded", tt.body)
+			if got, want := response.Code, http.StatusSeeOther; got != want {
+				t.Fatalf("form status = %d, want %d; body = %s", got, want, response.Body.String())
+			}
+
+			wantLocation := "/?account=" + url.QueryEscape(tt.accountID) + "&error=" + tt.code
+			if tt.detail != "" {
+				wantLocation += "&detail=" + url.QueryEscape(tt.detail)
+			}
+			if got := response.Header().Get("Location"); got != wantLocation {
+				t.Errorf("form Location = %q, want %q", got, wantLocation)
 			}
 		})
 	}
@@ -948,7 +1046,7 @@ func TestRouterMapsBalanceOverflowAtBothPostingBoundaries(t *testing.T) {
 		if got, want := rejected.Code, http.StatusSeeOther; got != want {
 			t.Fatalf("rejected form status = %d, want %d; body = %s", got, want, rejected.Body.String())
 		}
-		if got, want := rejected.Header().Get("Location"), "/?account=acct-1&error=balance_overflow"; got != want {
+		if got, want := rejected.Header().Get("Location"), "/?account=acct-1&error=balance_overflow&detail=1"; got != want {
 			t.Errorf("rejected form Location = %q, want %q", got, want)
 		}
 		if output := logs.String(); !strings.Contains(output, ledger.ErrBalanceOverflow.Error()) {
@@ -1123,7 +1221,7 @@ func TestRouterRejectsInvalidAmountSignsWithoutAppending(t *testing.T) {
 			if got, want := formResponse.Code, http.StatusSeeOther; got != want {
 				t.Errorf("form status = %d, want %d; body = %s", got, want, formResponse.Body.String())
 			}
-			if got, want := formResponse.Header().Get("Location"), "/?account=acct-1&error=amount_malformed"; got != want {
+			if got, want := formResponse.Header().Get("Location"), "/?account=acct-1&error=amount_malformed&detail="+url.QueryEscape(amount); got != want {
 				t.Errorf("form Location = %q, want %q", got, want)
 			}
 

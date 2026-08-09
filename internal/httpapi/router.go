@@ -374,7 +374,30 @@ func writePostError(w http.ResponseWriter, r *http.Request, jsonResponse bool, a
 	}
 
 	log.Printf("post transaction for account %q: %v", accountID, err)
-	http.Redirect(w, r, "/?account="+url.QueryEscape(accountID)+"&error="+url.QueryEscape(codeFor(err).code), http.StatusSeeOther)
+	code := codeFor(err).code
+	location := "/?account=" + url.QueryEscape(accountID) + "&error=" + url.QueryEscape(code)
+	if detail := postRedirectDetail(code, context.value); detail != "" {
+		location += "&detail=" + url.QueryEscape(detail)
+	}
+	http.Redirect(w, r, location, http.StatusSeeOther)
+}
+
+func postRedirectDetail(code, value string) string {
+	switch code {
+	case "amount_zero", "amount_malformed":
+		if detail, ok := freeTextCarriedValue(value); ok {
+			return detail
+		}
+	case "description_too_long":
+		if detail, ok := characterCountCarriedValue(value); ok {
+			return detail
+		}
+	case "balance_would_go_negative", "balance_overflow":
+		if detail, ok := integerCentsCarriedValue(value); ok {
+			return detail
+		}
+	}
+	return ""
 }
 
 type transactionPostRequest struct {
