@@ -8,12 +8,30 @@ import (
 
 type postingStore struct {
 	fakeStore
-	appended []Transaction
+	appended   []Transaction
+	accountErr error
+}
+
+func (s *postingStore) Account(id string) (Account, error) {
+	if s.accountErr != nil {
+		return Account{}, s.accountErr
+	}
+	return s.fakeStore.Account(id)
 }
 
 func (s *postingStore) Append(transaction Transaction) error {
 	s.appended = append(s.appended, transaction)
 	return nil
+}
+
+func TestPostTransactionRejectsUnknownAccountBeforeOtherValidation(t *testing.T) {
+	store := &postingStore{accountErr: ErrAccountNotFound}
+
+	_, err := PostTransaction(store, "missing-account", 0, "   ")
+
+	if !errors.Is(err, ErrAccountNotFound) || len(store.appended) != 0 {
+		t.Fatalf("PostTransaction() error = %v, appended = %d; want ErrAccountNotFound and no transaction", err, len(store.appended))
+	}
 }
 
 func TestPostTransactionRejectsZeroAmount(t *testing.T) {
