@@ -45,10 +45,19 @@ These are settled. See `.docs/decisions/` for the reasoning.
 - Tests target a 4:1 test-to-implementation line ratio, table-driven, with a negative
   case for every validation rule.
 
+## Rejections
+
+Rejections use these seven identifiers: `account_not_found`, `amount_zero`,
+`description_empty`, `description_too_long`, `amount_malformed`,
+`balance_would_go_negative`, and `balance_overflow`. Messages use the shape
+`<rule sentence>. <value sentence>` when a safe, relevant rejected value is
+available. For example: `Amount must not be zero. Submitted: 0.00.`
+
+The identifiers are a frozen contract; the human-readable message is not.
+
 ## Status
 
-Scaffold only. `internal/ledger`, `internal/store`, and `internal/clock` are
-deliberately empty — the ledger is built during the demo.
+The base ledger is complete and ready to be extended live during the demo.
 
 **Do not add features speculatively.** Duplicate/idempotency detection, overdraft or
 fees, pending holds, statements, interest, auth, transfers, Docker, and CI are all
