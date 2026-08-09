@@ -117,6 +117,129 @@ func TestRouter(t *testing.T) {
 	}
 }
 
+func TestRouterRendersAccountPageMarkup(t *testing.T) {
+	createdEarlier := time.Date(2026, time.August, 8, 14, 30, 0, 0, time.UTC)
+	store := routerTestStore{
+		accounts: []ledger.Account{
+			{ID: "acct-2", Name: "Savings"},
+			{ID: "acct-3", Name: "Vacation"},
+			{ID: "acct-1", Name: "Checking"},
+		},
+		transactions: map[string][]ledger.Transaction{
+			"acct-1": {
+				{ID: "txn-0001", AccountID: "acct-1", Amount: 100000, Description: "Paycheck", CreatedAt: createdEarlier},
+				{ID: "txn-0002", AccountID: "acct-1", Amount: 28350, Description: "Groceries", CreatedAt: createdEarlier.Add(time.Minute)},
+			},
+		},
+	}
+	router, err := NewRouter(&store)
+	if err != nil {
+		t.Fatalf("NewRouter() error = %v, want nil", err)
+	}
+
+	t.Run("default selection renders the first account by ID in styleguide layout order", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/", nil))
+		body := rec.Body.String()
+
+		if got, want := rec.Code, http.StatusOK; got != want {
+			t.Fatalf("status = %d, want %d", got, want)
+		}
+		if got, want := rec.Header().Get("Content-Type"), "text/html; charset=utf-8"; got != want {
+			t.Errorf("Content-Type = %q, want %q", got, want)
+		}
+		for _, link := range []string{
+			`<a href="/?account=acct-1">Checking</a>`,
+			`<a href="/?account=acct-2">Savings</a>`,
+			`<a href="/?account=acct-3">Vacation</a>`,
+		} {
+			if !strings.Contains(body, link) {
+				t.Errorf("page does not contain account link %q; body = %s", link, body)
+			}
+		}
+		for _, markup := range []string{
+			`class="balance">$1,283.50`,
+			`<form method="post" action="/api/accounts/acct-1/transactions">`,
+		} {
+			if !strings.Contains(body, markup) {
+				t.Errorf("page does not contain %q; body = %s", markup, body)
+			}
+		}
+		if strings.Contains(strings.ToLower(body), "<script") {
+			t.Errorf("page contains a script tag; body = %s", body)
+		}
+
+		positions := []int{
+			strings.Index(body, "<h1>"),
+			strings.Index(body, `href="/?account=acct-1"`),
+			strings.Index(body, `class="balance"`),
+			strings.Index(body, "<form"),
+			strings.Index(body, "Groceries"),
+		}
+		for index, position := range positions {
+			if position < 0 {
+				t.Fatalf("layout part %d is missing; body = %s", index, body)
+			}
+			if index > 0 && positions[index-1] >= position {
+				t.Errorf("layout positions = %v, want heading, selector, balance, form, transaction list", positions)
+			}
+		}
+	})
+
+	t.Run("selected account page matches the JSON transaction order", func(t *testing.T) {
+		jsonRec := httptest.NewRecorder()
+		router.ServeHTTP(jsonRec, httptest.NewRequest(http.MethodGet, "/api/accounts/acct-1/transactions", nil))
+		if got, want := jsonRec.Code, http.StatusOK; got != want {
+			t.Fatalf("JSON status = %d, want %d; body = %s", got, want, jsonRec.Body.String())
+		}
+		var jsonTransactions []transactionResponse
+		if err := json.Unmarshal(jsonRec.Body.Bytes(), &jsonTransactions); err != nil {
+			t.Fatalf("JSON transactions cannot be decoded: %v; body = %s", err, jsonRec.Body.String())
+		}
+		if got, want := len(jsonTransactions), 2; got != want {
+			t.Fatalf("JSON transaction count = %d, want %d", got, want)
+		}
+
+		pageRec := httptest.NewRecorder()
+		router.ServeHTTP(pageRec, httptest.NewRequest(http.MethodGet, "/?account=acct-1", nil))
+		body := pageRec.Body.String()
+		for _, markup := range []string{
+			`class="balance">$1,283.50`,
+			`<form method="post" action="/api/accounts/acct-1/transactions">`,
+		} {
+			if !strings.Contains(body, markup) {
+				t.Errorf("selected account page does not contain %q; body = %s", markup, body)
+			}
+		}
+		for index, transaction := range jsonTransactions {
+			position := strings.Index(body, transaction.Description)
+			if position < 0 {
+				t.Errorf("selected account page does not render JSON transaction %q; body = %s", transaction.Description, body)
+				continue
+			}
+			if index > 0 {
+				previous := strings.Index(body, jsonTransactions[index-1].Description)
+				if previous >= position {
+					t.Errorf("page transaction order differs from JSON order %q then %q; body = %s", jsonTransactions[index-1].Description, transaction.Description, body)
+				}
+			}
+		}
+	})
+
+	t.Run("empty account has a zero balance and explicit transaction empty state", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/?account=acct-3", nil))
+		body := rec.Body.String()
+
+		if !strings.Contains(body, `class="balance">$0.00`) {
+			t.Errorf("empty account balance is missing; body = %s", body)
+		}
+		if !strings.Contains(strings.ToLower(body), "no transactions") {
+			t.Errorf("empty account does not show an explicit transaction empty state; body = %s", body)
+		}
+	})
+}
+
 func TestRouterPostsTransactionsForJSONAndFormRequests(t *testing.T) {
 	store := &routerTestStore{
 		accounts: []ledger.Account{{ID: "acct-1", Name: "Checking"}, {ID: "acct?2", Name: "Escaped"}},

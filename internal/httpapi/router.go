@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"sort"
+	"strconv"
 	"time"
 
 	"github.com/jstoup111/ledger-demo/internal/clock"
@@ -38,14 +39,104 @@ func NewRouter(store ledger.Store) (http.Handler, error) {
 	mux.HandleFunc("GET /api/accounts/{id}/transactions", handleAccountTransactions(store))
 	mux.HandleFunc("POST /api/accounts/{id}/transactions", handlePostTransaction(store))
 	mux.Handle("GET /style.css", http.FileServerFS(web.FS))
-	mux.HandleFunc("GET /{$}", func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "text/html; charset=utf-8")
-		if err := page.Execute(w, nil); err != nil {
-			http.Error(w, "template render failed", http.StatusInternalServerError)
-		}
-	})
+	mux.HandleFunc("GET /{$}", handlePage(page, store))
 
 	return emptyDefaultErrors(mux), nil
+}
+
+type pageAccount struct {
+	Name string
+	Link string
+}
+
+type pageTransaction struct {
+	Amount      string
+	Description string
+}
+
+type pageData struct {
+	Accounts     []pageAccount
+	Balance      string
+	FormAction   string
+	Transactions []pageTransaction
+}
+
+func handlePage(page *template.Template, store ledger.Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		accounts, err := store.Accounts()
+		if err != nil {
+			http.Error(w, "list accounts failed", http.StatusInternalServerError)
+			return
+		}
+		accounts = append([]ledger.Account(nil), accounts...)
+		sort.Slice(accounts, func(i, j int) bool { return accounts[i].ID < accounts[j].ID })
+		if len(accounts) == 0 {
+			w.Header().Set("Content-Type", "text/html; charset=utf-8")
+			if err := page.Execute(w, pageData{}); err != nil {
+				http.Error(w, "template render failed", http.StatusInternalServerError)
+			}
+			return
+		}
+
+		selected := accounts[0]
+		if requested := r.URL.Query().Get("account"); requested != "" {
+			for _, account := range accounts {
+				if account.ID == requested {
+					selected = account
+					break
+				}
+			}
+		}
+
+		balance, err := ledger.Balance(store, selected.ID)
+		if err != nil {
+			http.Error(w, "derive balance failed", http.StatusInternalServerError)
+			return
+		}
+		transactions, err := store.Transactions(selected.ID)
+		if err != nil {
+			http.Error(w, "list transactions failed", http.StatusInternalServerError)
+			return
+		}
+
+		data := pageData{
+			Balance:      formatDollars(balance),
+			FormAction:   "/api/accounts/" + url.PathEscape(selected.ID) + "/transactions",
+			Transactions: make([]pageTransaction, 0, len(transactions)),
+		}
+		for _, account := range accounts {
+			data.Accounts = append(data.Accounts, pageAccount{
+				Name: account.Name,
+				Link: "/?account=" + url.QueryEscape(account.ID),
+			})
+		}
+		for _, transaction := range transactions {
+			data.Transactions = append(data.Transactions, pageTransaction{
+				Amount:      formatDollars(transaction.Amount),
+				Description: transaction.Description,
+			})
+		}
+
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		if err := page.Execute(w, data); err != nil {
+			http.Error(w, "template render failed", http.StatusInternalServerError)
+		}
+	}
+}
+
+func formatDollars(cents int64) string {
+	sign := ""
+	magnitude := uint64(cents)
+	if cents < 0 {
+		sign = "-"
+		magnitude = uint64(-(cents + 1)) + 1
+	}
+
+	dollars := strconv.FormatUint(magnitude/100, 10)
+	for index := len(dollars) - 3; index > 0; index -= 3 {
+		dollars = dollars[:index] + "," + dollars[index:]
+	}
+	return sign + "$" + dollars + "." + strconv.FormatUint(magnitude%100+100, 10)[1:]
 }
 
 // emptyDefaultErrors preserves ServeMux's route selection while keeping its
