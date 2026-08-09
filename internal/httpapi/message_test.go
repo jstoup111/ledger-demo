@@ -5,6 +5,39 @@ import (
 	"testing"
 )
 
+func TestMessageForReturnsPlainSentencesAndGenericFallback(t *testing.T) {
+	context := messageContext{}
+	tests := []struct {
+		name       string
+		identifier string
+		want       string
+	}{
+		{name: "account not found", identifier: "account_not_found", want: "Account not found."},
+		{name: "amount zero", identifier: "amount_zero", want: "Amount must not be zero."},
+		{name: "description required", identifier: "description_empty", want: "Description must not be empty."},
+		{name: "description too long", identifier: "description_too_long", want: "Description is too long."},
+		{name: "amount malformed", identifier: "amount_malformed", want: "Amount is malformed."},
+		{name: "balance would go negative", identifier: "balance_would_go_negative", want: "Balance would go negative."},
+		{name: "balance overflow", identifier: "balance_overflow", want: "Balance would overflow."},
+		{name: "unknown identifier", identifier: "not_a_real_code", want: "Unable to post transaction."},
+		{name: "empty identifier", identifier: "", want: ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := messageFor(tt.identifier, context); got != tt.want {
+				t.Errorf("messageFor(%q, zero context) = %q, want %q", tt.identifier, got, tt.want)
+			}
+		})
+	}
+
+	firstUnknown := messageFor("not_a_real_code", context)
+	secondUnknown := messageFor("another_unknown_code", context)
+	if firstUnknown != secondUnknown {
+		t.Errorf("different unknown identifiers returned different messages: %q and %q", firstUnknown, secondUnknown)
+	}
+}
+
 func TestFreeTextCarriedValue(t *testing.T) {
 	tests := []struct {
 		name  string

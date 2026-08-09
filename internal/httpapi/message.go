@@ -6,6 +6,36 @@ import (
 	"unicode/utf8"
 )
 
+type messageContext struct {
+	value        string
+	accountID    string
+	balance      int64
+	balanceKnown bool
+}
+
+func messageFor(identifier string, context messageContext) string {
+	switch identifier {
+	case "":
+		return ""
+	case "account_not_found":
+		return "Account not found."
+	case "amount_zero":
+		return "Amount must not be zero."
+	case "description_empty":
+		return "Description must not be empty."
+	case "description_too_long":
+		return "Description is too long."
+	case "amount_malformed":
+		return "Amount is malformed."
+	case "balance_would_go_negative":
+		return "Balance would go negative."
+	case "balance_overflow":
+		return "Balance would overflow."
+	default:
+		return "Unable to post transaction."
+	}
+}
+
 func freeTextCarriedValue(value string) (string, bool) {
 	if value == "" || utf8.RuneCountInString(value) > 32 {
 		return "", false
