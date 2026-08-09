@@ -18,6 +18,7 @@ package acceptance
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -25,9 +26,11 @@ import (
 	"net/url"
 	"os"
 	"os/exec"
+	"os/signal"
 	"path/filepath"
 	"strings"
 	"sync"
+	"syscall"
 	"testing"
 	"time"
 )
@@ -36,8 +39,43 @@ import (
 // connection before the spec gives up and reports the server's own output.
 const readyTimeout = 15 * time.Second
 
+// pollInterval paces waitReady's dial retries. It trades a small amount of
+// readiness latency for not busy-spinning a core between attempts.
+const pollInterval = 5 * time.Millisecond
+
+// maxStartAttempts bounds how many times startServer will retry with a
+// freshly probed port after the child exits before ever becoming reachable.
+// See freePort: probing a port and later binding it are two separate steps,
+// so another process can steal the port in between; a retry tolerates that
+// loss without the spec flaking.
+const maxStartAttempts = 3
+
 // serverBin is the compiled ./cmd/server binary, built once for the package.
 var serverBin string
+
+// children tracks every server stop function currently registered so that,
+// if this test binary itself is interrupted (Ctrl-C, `kill`, a CI timeout),
+// every child can be killed before the process exits. t.Cleanup cannot help
+// here: on a signal, the runtime never returns from the running test to run
+// its deferred cleanups.
+var (
+	childrenMu sync.Mutex
+	children   []func()
+)
+
+func registerChild(stop func()) {
+	childrenMu.Lock()
+	defer childrenMu.Unlock()
+	children = append(children, stop)
+}
+
+func stopAllChildren() {
+	childrenMu.Lock()
+	defer childrenMu.Unlock()
+	for _, stop := range children {
+		stop()
+	}
+}
 
 func TestMain(m *testing.M) {
 	dir, err := os.MkdirTemp("", "ledger-acceptance-bin")
@@ -54,6 +92,14 @@ func TestMain(m *testing.M) {
 		os.RemoveAll(dir)
 		os.Exit(1)
 	}
+
+	sigCh := make(chan os.Signal, 1)
+	signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
+	go func() {
+		<-sigCh
+		stopAllChildren()
+		os.Exit(1)
+	}()
 
 	code := m.Run()
 	os.RemoveAll(dir)
@@ -131,58 +177,129 @@ func seedDB(t *testing.T, dbPath string) {
 	}
 }
 
+// errServerExitedEarly marks a waitReady failure where the child process
+// exited before ever accepting a connection, as distinct from a genuine
+// readiness timeout. startServer treats the two differently: an early exit
+// is retried on a fresh port (see freePort's TOCTOU note); a real timeout is
+// not, since retrying it would just spend another 15s on a truly broken
+// server.
+var errServerExitedEarly = errors.New("server exited before accepting a connection")
+
+// childExit reports when a started *exec.Cmd's process has exited. err is
+// only safe to read after done is closed: the write in the watcher goroutine
+// happens-before the close, and the close happens-before any receive on
+// done, per the Go memory model.
+type childExit struct {
+	done chan struct{}
+	err  error
+}
+
+func watchExit(cmd *exec.Cmd) *childExit {
+	c := &childExit{done: make(chan struct{})}
+	go func() {
+		c.err = cmd.Wait()
+		close(c.done)
+	}()
+	return c
+}
+
 // startServer runs the real `serve` subcommand on a free port. The returned stop
 // function is idempotent and is also registered as test cleanup.
 func startServer(t *testing.T, dbPath string) (base string, stop func()) {
 	t.Helper()
 
-	port := freePort(t)
-	logs := &safeBuffer{}
+	for attempt := 1; attempt <= maxStartAttempts; attempt++ {
+		port := freePort(t)
+		logs := &safeBuffer{}
 
-	cmd := exec.Command(serverBin, "serve")
-	cmd.Env = append(os.Environ(), "LEDGER_DB_PATH="+dbPath, "PORT="+port)
-	cmd.Stdout = logs
-	cmd.Stderr = logs
+		cmd := exec.Command(serverBin, "serve")
+		cmd.Env = append(os.Environ(), "LEDGER_DB_PATH="+dbPath, "PORT="+port)
+		cmd.Stdout = logs
+		cmd.Stderr = logs
+		// Its own process group, so stop can kill the whole group and so it
+		// is not silently reparented to init/launchd if this test binary
+		// dies without running its deferred cleanups.
+		cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 
-	if err := cmd.Start(); err != nil {
-		t.Fatalf("serve %s on port %s: %v", dbPath, port, err)
-	}
+		if err := cmd.Start(); err != nil {
+			t.Fatalf("serve %s on port %s: %v", dbPath, port, err)
+		}
+		exit := watchExit(cmd)
 
-	var once sync.Once
-	stop = func() {
-		once.Do(func() {
-			_ = cmd.Process.Kill()
-			_ = cmd.Wait()
-		})
-	}
-	t.Cleanup(stop)
-
-	base = "http://127.0.0.1:" + port
-	waitReady(t, port, logs)
-	return base, stop
-}
-
-func waitReady(t *testing.T, port string, logs *safeBuffer) {
-	t.Helper()
-
-	addr := net.JoinHostPort("127.0.0.1", port)
-	timeout := time.After(readyTimeout)
-	for {
-		select {
-		case <-timeout:
-			t.Fatalf("server did not accept a connection on %s within %s; server output:\n%s",
-				addr, readyTimeout, logs.String())
-		default:
+		var once sync.Once
+		stop = func() {
+			once.Do(func() {
+				if cmd.Process != nil {
+					// Negative pid targets the whole process group created
+					// by Setpgid above, not just the immediate child.
+					_ = syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+				}
+				<-exit.done
+			})
 		}
 
+		addr := net.JoinHostPort("127.0.0.1", port)
+		err := waitReady(addr, exit)
+		if err == nil {
+			registerChild(stop)
+			t.Cleanup(stop)
+			return "http://" + addr, stop
+		}
+
+		stop()
+
+		if errors.Is(err, errServerExitedEarly) && attempt < maxStartAttempts {
+			// Most likely cause: freePort's probe and this serve's real
+			// bind raced with another process for the same ephemeral port.
+			// Retry with a freshly probed port rather than fail the spec on
+			// a purely environmental collision.
+			continue
+		}
+
+		if errors.Is(err, errServerExitedEarly) {
+			t.Fatalf("server on %s exited before accepting a connection after %d attempts (last: %v); server output:\n%s",
+				addr, attempt, exit.err, logs.String())
+		}
+		t.Fatalf("server did not accept a connection on %s within %s; server output:\n%s",
+			addr, readyTimeout, logs.String())
+	}
+
+	panic("unreachable")
+}
+
+// waitReady blocks until addr accepts a TCP connection, the watched process
+// exits, or readyTimeout elapses. It paces retries on pollInterval instead of
+// busy-looping: an unpaced dial loop burns a core and, since a refused
+// connection returns immediately, piles up short-lived sockets for the
+// duration of every server start.
+func waitReady(addr string, exit *childExit) error {
+	deadline := time.After(readyTimeout)
+	ticker := time.NewTicker(pollInterval)
+	defer ticker.Stop()
+
+	for {
 		conn, err := net.Dial("tcp", addr)
 		if err == nil {
 			conn.Close()
-			return
+			return nil
+		}
+
+		select {
+		case <-deadline:
+			return fmt.Errorf("timed out waiting for %s", addr)
+		case <-exit.done:
+			return fmt.Errorf("%w: %v", errServerExitedEarly, exit.err)
+		case <-ticker.C:
 		}
 	}
 }
 
+// freePort probes for a currently-unused port by binding an ephemeral
+// listener and immediately releasing it. There is an inherent TOCTOU window
+// between that release and the real server's later bind to the same port —
+// two separate processes, so the port cannot be handed off directly. That
+// window is accepted here and made harmless in startServer, which retries
+// with a fresh port if the server fails to bind (see errServerExitedEarly).
 func freePort(t *testing.T) string {
 	t.Helper()
 
