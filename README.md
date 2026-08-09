@@ -11,6 +11,12 @@ make dev     # serve on http://localhost:8080
 make test    # run the suite (under 10s, fully deterministic)
 ```
 
+### Seed data
+
+Three accounts are seeded: the first has 12 transactions, the second 9, and the third is empty.
+Their recorded times cover roughly two months of history and end at a fixed reference instant.
+The first deliberately includes one same-instant pair, so the newest-first identifier tiebreak stays covered by a real test.
+
 ## Stack
 
 Go (stdlib `net/http` with 1.22+ `ServeMux` routing), SQLite via
