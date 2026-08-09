@@ -755,6 +755,73 @@ func TestRouterJSONPostRejectionsNameTheirContext(t *testing.T) {
 	}
 }
 
+func TestRouterJSONPostEscapesScriptBearingMalformedAmount(t *testing.T) {
+	store := &routerTestStore{
+		accounts:     []ledger.Account{{ID: "acct-1", Name: "Checking"}},
+		transactions: map[string][]ledger.Transaction{},
+	}
+	router, err := NewRouter(store, routerClock)
+	if err != nil {
+		t.Fatalf("NewRouter() error = %v, want nil", err)
+	}
+
+	recorder := postTransaction(router, "/api/accounts/acct-1/transactions", "application/json", `{"amount":"<script>alert(1)</script>","description":"Coffee"}`)
+	if got, want := recorder.Code, http.StatusBadRequest; got != want {
+		t.Fatalf("status = %d, want %d; body = %s", got, want, recorder.Body.String())
+	}
+	if strings.Contains(recorder.Body.String(), "<script") {
+		t.Fatalf("response contains raw script tag: %s", recorder.Body.String())
+	}
+
+	var response map[string]map[string]string
+	if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+		t.Fatalf("response is not JSON: %v; body = %s", err, recorder.Body.String())
+	}
+	if got, want := response["error"], map[string]string{
+		"code":    "amount_malformed",
+		"message": "Amount is malformed. Submitted: <script>alert(1)</script>.",
+	}; !reflect.DeepEqual(got, want) {
+		t.Errorf("error = %#v, want %#v", got, want)
+	}
+}
+
+func TestRouterJSONPostRejectsUnparseableAndMultipleValueBodiesWithPlainError(t *testing.T) {
+	store := &routerTestStore{
+		accounts:     []ledger.Account{{ID: "acct-1", Name: "Checking"}},
+		transactions: map[string][]ledger.Transaction{},
+	}
+	router, err := NewRouter(store, routerClock)
+	if err != nil {
+		t.Fatalf("NewRouter() error = %v, want nil", err)
+	}
+
+	for _, tt := range []struct {
+		name string
+		body string
+	}{
+		{name: "unparseable", body: `{"amount":"1.00"`},
+		{name: "two JSON values", body: `{"amount":"1.00","description":"Coffee"} {"amount":"2.00"}`},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			recorder := postTransaction(router, "/api/accounts/acct-1/transactions", "application/json", tt.body)
+			if got, want := recorder.Code, http.StatusBadRequest; got != want {
+				t.Fatalf("status = %d, want %d; body = %s", got, want, recorder.Body.String())
+			}
+
+			var response map[string]map[string]string
+			if err := json.Unmarshal(recorder.Body.Bytes(), &response); err != nil {
+				t.Fatalf("response is not JSON: %v; body = %s", err, recorder.Body.String())
+			}
+			if got, want := response["error"], map[string]string{
+				"code":    "amount_malformed",
+				"message": "Amount is malformed.",
+			}; !reflect.DeepEqual(got, want) {
+				t.Errorf("error = %#v, want %#v", got, want)
+			}
+		})
+	}
+}
+
 func TestRouterJSONBalanceRejectionNamesDerivedBalance(t *testing.T) {
 	t.Run("accepted JSON post does not reread the balance for rejection detail", func(t *testing.T) {
 		base := &routerTestStore{
