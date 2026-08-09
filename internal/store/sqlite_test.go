@@ -141,12 +141,16 @@ func TestSQLiteAppendsTransactionsAndCountsAllAccounts(t *testing.T) {
 		t.Fatalf("CountTransactions() after append error = %v", err)
 	}
 	var read ledger.Transaction
+	var persistedCreatedAt string
 	if err := store.db.QueryRow(`
-		SELECT id, account_id, amount, description
+		SELECT id, account_id, amount, description, created_at
 		FROM transactions
 		WHERE id = ?
-	`, appended.ID).Scan(&read.ID, &read.AccountID, &read.Amount, &read.Description); err != nil {
+	`, appended.ID).Scan(&read.ID, &read.AccountID, &read.Amount, &read.Description, &persistedCreatedAt); err != nil {
 		t.Fatalf("read appended transaction error = %v", err)
+	}
+	if got, want := persistedCreatedAt, appended.CreatedAt.UTC().Format("2006-01-02T15:04:05.000000000Z07:00"); got != want {
+		t.Errorf("persisted created_at = %q, want fixed-width %q", got, want)
 	}
 	if got, want := struct {
 		beforeAppend int
@@ -194,6 +198,30 @@ func TestSQLiteTransactionsOrdersSameTimestampByIDDescending(t *testing.T) {
 
 	if got, want := [][]string{transactionIDs(firstRead), transactionIDs(secondRead)}, [][]string{{"txn-0003", "txn-0002", "txn-0001"}, {"txn-0003", "txn-0002", "txn-0001"}}; !reflect.DeepEqual(got, want) {
 		t.Fatalf("Transactions() IDs = %#v, want %#v", got, want)
+	}
+}
+
+func TestSQLiteTransactionsSameTimestampMixedWidthIDsDocumentLexicographicLimit(t *testing.T) {
+	store, err := Open(":memory:")
+	if err != nil {
+		t.Fatalf("Open() error = %v", err)
+	}
+	t.Cleanup(func() { _ = store.db.Close() })
+	if err := store.InsertAccount(ledger.Account{ID: "acct-1", Name: "First"}); err != nil {
+		t.Fatalf("InsertAccount() error = %v", err)
+	}
+	createdAt := time.Date(2026, time.August, 8, 12, 0, 0, 0, time.UTC)
+	for _, id := range []string{"txn-9999", "txn-10000"} {
+		if err := store.Append(ledger.Transaction{ID: id, AccountID: "acct-1", Amount: 1, Description: id, CreatedAt: createdAt}); err != nil {
+			t.Fatalf("Append(%q) error = %v", id, err)
+		}
+	}
+	transactions, err := store.Transactions("acct-1")
+	if err != nil {
+		t.Fatalf("Transactions() error = %v", err)
+	}
+	if got, want := transactionIDs(transactions), []string{"txn-9999", "txn-10000"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("mixed-width IDs sort lexicographically = %v, want %v; fixed-width IDs are required for numeric tie order", got, want)
 	}
 }
 

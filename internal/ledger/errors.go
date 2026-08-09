@@ -9,4 +9,5 @@ var (
 	ErrDescriptionTooLong     = errors.New("description is too long")
 	ErrAmountMalformed        = errors.New("amount is malformed")
 	ErrBalanceWouldGoNegative = errors.New("balance would go negative")
+	ErrBalanceOverflow        = errors.New("balance overflow")
 )

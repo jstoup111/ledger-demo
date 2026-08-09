@@ -575,6 +575,30 @@ func TestAcceptanceProgrammaticPostingMatchesTheForm(t *testing.T) {
 				formBody: "amount=4.25&description=First+description&description=",
 				wantCode: "description_empty",
 			},
+			{
+				name:     "mixed-case amount does not bypass malformed amount validation",
+				jsonBody: `{"Amount":"4.25","description":"Case variant"}`,
+				formBody: "Amount=4.25&description=Case+variant",
+				wantCode: "amount_malformed",
+			},
+			{
+				name:     "exact amount key wins over case variant",
+				jsonBody: `{"amount":"0","Amount":"4.25","description":"Exact key"}`,
+				formBody: "amount=0&Amount=4.25&description=Exact+key",
+				wantCode: "amount_zero",
+			},
+			{
+				name:     "exact description key wins over case variant",
+				jsonBody: `{"amount":"4.25","description":"   ","Description":"Valid description"}`,
+				formBody: "amount=4.25&description=+++&Description=Valid+description",
+				wantCode: "description_empty",
+			},
+			{
+				name:     "exact duplicate amount still uses its last value",
+				jsonBody: `{"amount":"0","Amount":"4.25","amount":"-99999999","description":"Exact duplicate"}`,
+				formBody: "amount=0&Amount=4.25&amount=-99999999&description=Exact+duplicate",
+				wantCode: "balance_would_go_negative",
+			},
 		}
 
 		for _, tc := range cases {

@@ -1,6 +1,10 @@
 package ledger
 
-import "testing"
+import (
+	"errors"
+	"math"
+	"testing"
+)
 
 type balanceStore struct {
 	fakeStore
@@ -45,5 +49,12 @@ func TestBalanceSumsTransactions(t *testing.T) {
 				t.Fatalf("Balance() = %d, want %d", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestBalanceRejectsInt64Overflow(t *testing.T) {
+	_, err := Balance(balanceStore{transactions: []Transaction{{Amount: math.MaxInt64}, {Amount: 1}}}, "acct-1")
+	if !errors.Is(err, ErrBalanceOverflow) {
+		t.Fatalf("Balance() error = %v, want ErrBalanceOverflow", err)
 	}
 }

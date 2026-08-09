@@ -361,12 +361,9 @@ type transactionPostRequest struct {
 func postRequest(r *http.Request) (transactionPostRequest, bool, error) {
 	mediaType, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
 	if err == nil && mediaType == "application/json" {
-		var request struct {
-			Amount      string `json:"amount"`
-			Description string `json:"description"`
-		}
+		var fields map[string]json.RawMessage
 		decoder := json.NewDecoder(r.Body)
-		if err := decoder.Decode(&request); err != nil {
+		if err := decoder.Decode(&fields); err != nil {
 			return transactionPostRequest{}, true, err
 		}
 		var extra json.RawMessage
@@ -377,7 +374,19 @@ func postRequest(r *http.Request) (transactionPostRequest, bool, error) {
 		default:
 			return transactionPostRequest{}, true, err
 		}
-		return transactionPostRequest{amount: request.Amount, description: request.Description}, true, nil
+
+		request := transactionPostRequest{}
+		if raw, ok := fields["amount"]; ok {
+			if err := json.Unmarshal(raw, &request.amount); err != nil {
+				return transactionPostRequest{}, true, err
+			}
+		}
+		if raw, ok := fields["description"]; ok {
+			if err := json.Unmarshal(raw, &request.description); err != nil {
+				return transactionPostRequest{}, true, err
+			}
+		}
+		return request, true, nil
 	}
 
 	body, err := io.ReadAll(r.Body)

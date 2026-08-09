@@ -276,6 +276,10 @@ func TestRouterRendersAccountPageMarkup(t *testing.T) {
 			if !strings.Contains(body, "<td>"+transaction.CreatedAt+"</td>") {
 				t.Errorf("selected account page does not render JSON transaction timestamp %q; body = %s", transaction.CreatedAt, body)
 			}
+			row := "<tr><td>" + transaction.Description + "</td><td>" + formatDollars(transaction.AmountCents) + "</td><td>" + transaction.CreatedAt + "</td></tr>"
+			if !strings.Contains(body, row) {
+				t.Errorf("selected account page does not render formatted transaction row %q; body = %s", row, body)
+			}
 		}
 	})
 

@@ -14,6 +14,7 @@ func TestDomainErrorSentinelsAreDistinctAndSurviveWrapping(t *testing.T) {
 		ErrDescriptionTooLong,
 		ErrAmountMalformed,
 		ErrBalanceWouldGoNegative,
+		ErrBalanceOverflow,
 	}
 
 	for i, sentinel := range sentinels {

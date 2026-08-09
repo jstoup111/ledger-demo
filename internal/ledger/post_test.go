@@ -125,13 +125,32 @@ func TestPostingRuleSemanticsRejectEachRuleWithoutRecording(t *testing.T) {
 	}
 }
 
-func TestPostTransactionAcceptsMaximumCreditWithoutBalanceFloorError(t *testing.T) {
-	store := &postingStore{transactions: []Transaction{{Amount: 1}}}
+func TestPostTransactionRejectsDerivedBalanceOverflowWithoutRecording(t *testing.T) {
+	tests := []struct {
+		name         string
+		transactions []Transaction
+		amount       int64
+	}{
+		{"aggregate addition", []Transaction{{Amount: math.MaxInt64}}, 1},
+		{"minimum balance debit", []Transaction{{Amount: math.MinInt64}}, -1},
+	}
 
-	transaction, err := PostTransaction(postingClock, store, "acct-1", math.MaxInt64, "maximum credit")
-
-	if errors.Is(err, ErrBalanceWouldGoNegative) || err != nil || transaction.Amount != math.MaxInt64 || len(store.appended) != 1 {
-		t.Fatalf("PostTransaction() = %#v, %v; appended = %#v; want maximum credit recorded without a balance-floor error", transaction, err, store.appended)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			store := &postingStore{transactions: tt.transactions}
+			balanceBefore, err := Balance(store, "acct-1")
+			if err != nil {
+				t.Fatalf("Balance() before posting error = %v", err)
+			}
+			_, err = PostTransaction(postingClock, store, "acct-1", tt.amount, "overflow")
+			if !errors.Is(err, ErrBalanceOverflow) || len(store.appended) != 0 || store.count != 0 {
+				t.Fatalf("PostTransaction() error = %v; appended = %#v, count = %d; want ErrBalanceOverflow and no persisted transaction", err, store.appended, store.count)
+			}
+			balanceAfter, balanceErr := Balance(store, "acct-1")
+			if balanceErr != nil || balanceAfter != balanceBefore {
+				t.Fatalf("Balance() after rejected posting = %d, %v; want unchanged %d, nil", balanceAfter, balanceErr, balanceBefore)
+			}
+		})
 	}
 }
 
