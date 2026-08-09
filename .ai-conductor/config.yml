@@ -91,5 +91,27 @@ test_suite:
   working_directory: .
   timeout_seconds: 120
 
+# --- Acceptance-spec discovery -----------------------------------------------
+# The acceptance_specs gate's built-in globs are Ruby/JS-shaped
+# (spec/acceptance/**, spec/requests/**, test/**, *.test.ts, …). None of them
+# match a top-level acceptance/ directory, so on 2026-08-08 the gate reported
+# "no acceptance spec files present" while 39KB of correct, correctly-RED Go
+# specs sat in acceptance/ — burning two full provider attempts before the step
+# relocated them to test/acceptance/ just to satisfy a built-in pattern.
+#
+# These globs are APPENDED to the built-ins (engine: extraArtifactGlobs +
+# findArtifactFiles), never substituted for them, so declaring acceptance/ here
+# does not stop test/acceptance/ from resolving. Specs may live in either.
+#
+# Pattern style mirrors the built-ins deliberately: the glob matcher supports
+# `dir/*.ext`, `dir/**/*.ext`, and `dir/**/*`, so `acceptance/**/*` is a
+# supported form while `acceptance/**/*_test.go` is not one of the documented
+# shapes and would risk matching nothing.
+#
+# NOTE: project config is cached at daemon session start, so this takes effect
+# on the next daemon restart — never mid-session.
+acceptance_spec_globs:
+  - "acceptance/**/*"
+
 # complexity:
 #   default_tier: M
