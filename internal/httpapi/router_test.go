@@ -105,6 +105,50 @@ func TestRouter(t *testing.T) {
 	}
 }
 
+func TestRouterRejectsWrongMethodsAndUnknownPathsWithoutABody(t *testing.T) {
+	store := routerTestStore{
+		accounts: []ledger.Account{{ID: "acct-1", Name: "Checking"}},
+		transactions: map[string][]ledger.Transaction{
+			"acct-1": {{ID: "txn-0001", AccountID: "acct-1", Amount: 100}},
+		},
+	}
+	router, err := NewRouter(store)
+	if err != nil {
+		t.Fatalf("NewRouter() error = %v, want nil", err)
+	}
+
+	transactionsBefore := len(store.transactions["acct-1"])
+	tests := []struct {
+		method string
+		path   string
+		status int
+	}{
+		{method: http.MethodPost, path: "/api/accounts", status: http.StatusMethodNotAllowed},
+		{method: http.MethodPut, path: "/api/accounts/acct-1/transactions", status: http.StatusMethodNotAllowed},
+		{method: http.MethodPatch, path: "/api/accounts/acct-1/transactions", status: http.StatusMethodNotAllowed},
+		{method: http.MethodDelete, path: "/api/accounts/acct-1/transactions", status: http.StatusMethodNotAllowed},
+		{method: http.MethodGet, path: "/nope", status: http.StatusNotFound},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.method+" "+tt.path, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			router.ServeHTTP(rec, httptest.NewRequest(tt.method, tt.path, nil))
+
+			if got, want := rec.Code, tt.status; got != want {
+				t.Errorf("status = %d, want %d", got, want)
+			}
+			if got := rec.Body.String(); got != "" {
+				t.Errorf("body = %q, want empty", got)
+			}
+		})
+	}
+
+	if got := len(store.transactions["acct-1"]); got != transactionsBefore {
+		t.Errorf("stored transaction count = %d, want unchanged %d", got, transactionsBefore)
+	}
+}
+
 func TestRouterServesAccountsWithDerivedBalances(t *testing.T) {
 	store := routerTestStore{
 		accounts: []ledger.Account{

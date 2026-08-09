@@ -40,7 +40,51 @@ func NewRouter(store ledger.Store) (http.Handler, error) {
 		}
 	})
 
-	return mux, nil
+	return emptyDefaultErrors(mux), nil
+}
+
+// emptyDefaultErrors preserves ServeMux's route selection while keeping its
+// default 404 and 405 responses bodyless. Matched handlers continue to write
+// their own response bodies, including coded JSON errors.
+func emptyDefaultErrors(mux *http.ServeMux) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		handler, pattern := mux.Handler(r)
+		if pattern != "" {
+			mux.ServeHTTP(w, r)
+			return
+		}
+
+		status := newStatusResponseWriter()
+		handler.ServeHTTP(status, r)
+		for key, values := range status.Header() {
+			w.Header()[key] = values
+		}
+		w.WriteHeader(status.status)
+	})
+}
+
+type statusResponseWriter struct {
+	header http.Header
+	status int
+}
+
+func newStatusResponseWriter() *statusResponseWriter {
+	return &statusResponseWriter{header: make(http.Header)}
+}
+
+func (w *statusResponseWriter) Header() http.Header { return w.header }
+
+func (w *statusResponseWriter) WriteHeader(status int) {
+	if w.status == 0 {
+		w.status = status
+	}
+}
+
+func (w *statusResponseWriter) Write(body []byte) (int, error) {
+	if w.status == 0 {
+		w.WriteHeader(http.StatusOK)
+	}
+	return len(body), nil
 }
 
 type accountResponse struct {
