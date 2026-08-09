@@ -291,22 +291,22 @@ func handleAccountTransactions(store ledger.Store) http.HandlerFunc {
 func handlePostTransaction(store ledger.Store, clock clock.Clock) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		request, jsonResponse, err := postRequest(r)
+		accountID := r.PathValue("id")
 		if err != nil {
-			writeJSONError(w, ledger.ErrAmountMalformed)
+			writePostError(w, r, jsonResponse, accountID, ledger.ErrAmountMalformed)
 			return
 		}
 
 		amount, err := parseAmount(request.amount)
 		if err != nil {
-			writeJSONError(w, err)
+			writePostError(w, r, jsonResponse, accountID, err)
 			return
 		}
 
-		accountID := r.PathValue("id")
 		transaction, err := ledger.PostTransaction(clock, store, accountID, amount, request.description)
 		if err != nil {
 			if codeFor(err).status != 0 {
-				writeJSONError(w, err)
+				writePostError(w, r, jsonResponse, accountID, err)
 				return
 			}
 			http.Error(w, "post transaction failed", http.StatusInternalServerError)
@@ -328,6 +328,15 @@ func handlePostTransaction(store ledger.Store, clock clock.Clock) http.HandlerFu
 			CreatedAt:   transaction.CreatedAt.UTC().Format(time.RFC3339),
 		})
 	}
+}
+
+func writePostError(w http.ResponseWriter, r *http.Request, jsonResponse bool, accountID string, err error) {
+	if jsonResponse {
+		writeJSONError(w, err)
+		return
+	}
+
+	http.Redirect(w, r, "/?account="+url.QueryEscape(accountID)+"&error="+url.QueryEscape(codeFor(err).code), http.StatusSeeOther)
 }
 
 type transactionPostRequest struct {

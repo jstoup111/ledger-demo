@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"reflect"
 	"strings"
 	"testing"
@@ -436,11 +437,19 @@ func TestRouterPostsTransactionsForJSONAndFormRequests(t *testing.T) {
 			{contentType: "application/x-www-form-urlencoded", body: "amount=0&description=Coffee"},
 		} {
 			rec := postTransaction(router, "/api/accounts/acct-1/transactions", request.contentType, request.body)
-			var response errorEnvelope
-			if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
-				t.Fatalf("response is not JSON: %v; body = %s", err, rec.Body.String())
+			if request.contentType == "application/json" {
+				var response errorEnvelope
+				if err := json.Unmarshal(rec.Body.Bytes(), &response); err != nil {
+					t.Fatalf("response is not JSON: %v; body = %s", err, rec.Body.String())
+				}
+				codes = append(codes, response.Error.Code)
+			} else {
+				location, err := url.Parse(rec.Header().Get("Location"))
+				if err != nil {
+					t.Fatalf("Location parse error = %v", err)
+				}
+				codes = append(codes, location.Query().Get("error"))
 			}
-			codes = append(codes, response.Error.Code)
 			countAfterRequest, err := store.CountTransactions()
 			if err != nil {
 				t.Fatalf("CountTransactions() error = %v", err)
@@ -460,6 +469,69 @@ func TestRouterPostsTransactionsForJSONAndFormRequests(t *testing.T) {
 			t.Errorf("transactions after rejected posts = %d, want %d", got, want)
 		}
 	})
+}
+
+func TestRouterNegotiatesCodedPostErrorsByContentType(t *testing.T) {
+	store := &routerTestStore{
+		accounts:     []ledger.Account{{ID: "acct-1", Name: "Checking"}},
+		transactions: map[string][]ledger.Transaction{"acct-1": {{Amount: 10000}}},
+	}
+	router, err := NewRouter(store, routerClock)
+	if err != nil {
+		t.Fatalf("NewRouter() error = %v, want nil", err)
+	}
+
+	for _, tt := range []struct {
+		name       string
+		path       string
+		body       string
+		code       string
+		jsonStatus int
+	}{
+		{name: "malformed amount at the boundary", path: "/api/accounts/acct-1/transactions", body: "amount=bad&description=Coffee", code: "amount_malformed", jsonStatus: http.StatusBadRequest},
+		{name: "empty description in the domain", path: "/api/accounts/acct-1/transactions", body: "amount=1.00&description=", code: "description_empty", jsonStatus: http.StatusBadRequest},
+		{name: "unknown account in the domain", path: "/api/accounts/acct-nope/transactions", body: "amount=1.00&description=Coffee", code: "account_not_found", jsonStatus: http.StatusNotFound},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			countBefore, err := store.CountTransactions()
+			if err != nil {
+				t.Fatalf("CountTransactions() error = %v", err)
+			}
+			form := postTransaction(router, tt.path, "application/x-www-form-urlencoded", tt.body)
+			if got, want := form.Code, http.StatusSeeOther; got != want {
+				t.Fatalf("form status = %d, want %d; body = %s", got, want, form.Body.String())
+			}
+			if got, want := form.Header().Get("Location"), "/?account="+url.QueryEscape(strings.TrimSuffix(strings.TrimPrefix(tt.path, "/api/accounts/"), "/transactions"))+"&error="+tt.code; got != want {
+				t.Errorf("form Location = %q, want %q", got, want)
+			}
+
+			jsonBody := `{"amount":"1.00","description":"Coffee"}`
+			if tt.code == "amount_malformed" {
+				jsonBody = `{"amount":"bad","description":"Coffee"}`
+			}
+			if tt.code == "description_empty" {
+				jsonBody = `{"amount":"1.00","description":""}`
+			}
+			jsonResponse := postTransaction(router, tt.path, "application/json", jsonBody)
+			var response errorEnvelope
+			if err := json.Unmarshal(jsonResponse.Body.Bytes(), &response); err != nil {
+				t.Fatalf("JSON response is not JSON: %v; body = %s", err, jsonResponse.Body.String())
+			}
+			if got, want := response.Error.Code, tt.code; got != want {
+				t.Errorf("JSON error code = %q, want %q", got, want)
+			}
+			if got, want := jsonResponse.Code, tt.jsonStatus; got != want {
+				t.Errorf("JSON status = %d, want %d", got, want)
+			}
+			countAfter, err := store.CountTransactions()
+			if err != nil {
+				t.Fatalf("CountTransactions() error = %v", err)
+			}
+			if got, want := countAfter, countBefore; got != want {
+				t.Errorf("transactions after rejected form and JSON posts = %d, want %d", got, want)
+			}
+		})
+	}
 }
 
 func TestRouterRejectsMalformedJSONAmountsWithoutAppending(t *testing.T) {
