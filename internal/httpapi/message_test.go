@@ -38,3 +38,33 @@ func TestFreeTextCarriedValue(t *testing.T) {
 		})
 	}
 }
+
+func TestCharacterCountCarriedValue(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  bool
+	}{
+		{name: "one hundred forty one characters", input: "141", want: true},
+		{name: "one hundred eighty seven characters", input: "187", want: true},
+		{name: "six digit character count", input: "999999", want: true},
+		{name: "empty", input: "", want: false},
+		{name: "letters", input: "abc", want: false},
+		{name: "below limit", input: "3", want: false},
+		{name: "at limit", input: "140", want: false},
+		{name: "negative", input: "-5", want: false},
+		{name: "decimal", input: "1.5", want: false},
+		{name: "seven digit value", input: "1000000", want: false},
+		{name: "thirty digit value", input: "123456789012345678901234567890", want: false},
+		{name: "leading zero", input: "0141", want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, ok := characterCountCarriedValue(tt.input)
+			if ok != tt.want {
+				t.Fatalf("characterCountCarriedValue(%q) ok = %t, want %t", tt.input, ok, tt.want)
+			}
+		})
+	}
+}
