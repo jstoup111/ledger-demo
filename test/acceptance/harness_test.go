@@ -48,7 +48,7 @@ func TestMain(m *testing.M) {
 
 	serverBin = filepath.Join(dir, "ledger-server")
 	build := exec.Command("go", "build", "-o", serverBin, "./cmd/server")
-	build.Dir = ".."
+	build.Dir = "../.."
 	if out, err := build.CombinedOutput(); err != nil {
 		fmt.Fprintf(os.Stderr, "acceptance: building ./cmd/server: %v\n%s", err, out)
 		os.RemoveAll(dir)
