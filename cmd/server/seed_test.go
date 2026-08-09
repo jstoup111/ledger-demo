@@ -41,8 +41,19 @@ func TestLoadSeedDataIsDeterministic(t *testing.T) {
 		}
 		seenIDs[transaction.ID] = true
 		perAccount[transaction.AccountID] = append(perAccount[transaction.AccountID], transaction)
-		if transaction.CreatedAt != seedClock.Now() {
-			t.Fatalf("transaction %q created at %v, want injected clock %v", transaction.ID, transaction.CreatedAt, seedClock.Now())
+		// Every seeded timestamp must be derived from the injected seed clock,
+		// never wall time: it can't be later than the seed instant, and the gap
+		// back to the seed instant must land on a whole-day boundary produced by
+		// a fixed per-row offset rather than an arbitrary wall-clock value.
+		delta := seedClock.Now().Sub(transaction.CreatedAt)
+		if delta < 0 {
+			t.Fatalf("transaction %q created at %v is after the injected seed instant %v", transaction.ID, transaction.CreatedAt, seedClock.Now())
+		}
+		if delta%(24*time.Hour) != 0 {
+			t.Fatalf("transaction %q created at %v is not a whole-day offset from the injected seed instant %v; timestamps must be derived from the clock, not wall time", transaction.ID, transaction.CreatedAt, seedClock.Now())
+		}
+		if delta > 30*24*time.Hour {
+			t.Fatalf("transaction %q created at %v is implausibly far (%v) from the injected seed instant %v", transaction.ID, transaction.CreatedAt, delta, seedClock.Now())
 		}
 	}
 	var acct1Balance int64
@@ -86,6 +97,79 @@ func TestLoadSeedDataIsDeterministic(t *testing.T) {
 		if !seenIDs[id] {
 			t.Fatalf("transaction IDs are not globally unbroken: missing %q", id)
 		}
+	}
+}
+
+// TestLoadSeedDataTimestampsAreDistinctExceptOneDeliberateTie guards the fix for
+// seeded rows all sharing one timestamp: recorded times must differ across a
+// funded account's transactions, with exactly one intentional exception (on
+// acct-1) kept so the created_at DESC, id DESC tiebreak in
+// internal/store.SQLite.Transactions stays covered by real seed data instead of
+// becoming dead code.
+func TestLoadSeedDataTimestampsAreDistinctExceptOneDeliberateTie(t *testing.T) {
+	snapshot := seedSnapshot(t)
+
+	perAccount := make(map[string][]ledger.Transaction)
+	for _, transaction := range snapshot.transactions {
+		perAccount[transaction.AccountID] = append(perAccount[transaction.AccountID], transaction)
+	}
+
+	for accountID, transactions := range perAccount {
+		byTimestamp := make(map[time.Time][]string)
+		for _, transaction := range transactions {
+			byTimestamp[transaction.CreatedAt] = append(byTimestamp[transaction.CreatedAt], transaction.ID)
+		}
+
+		tiedGroups := 0
+		for _, ids := range byTimestamp {
+			if len(ids) > 1 {
+				tiedGroups++
+			}
+		}
+
+		switch accountID {
+		case "acct-1":
+			if tiedGroups != 1 {
+				t.Fatalf("account %q has %d groups of tied timestamps, want exactly 1 deliberate tie", accountID, tiedGroups)
+			}
+		default:
+			if tiedGroups != 0 {
+				t.Fatalf("account %q has %d groups of tied timestamps, want 0 (all recorded times distinct)", accountID, tiedGroups)
+			}
+		}
+	}
+}
+
+// TestLoadSeedDataTiebreakOrdersByIDDescendingOnEqualTimestamps exercises the
+// real seed fixture end to end through the store's newest-first query, so the
+// created_at DESC, id DESC tiebreak has coverage from actual seed data (acct-1's
+// deliberately tied pair) and not only from synthetic fixtures.
+func TestLoadSeedDataTiebreakOrdersByIDDescendingOnEqualTimestamps(t *testing.T) {
+	database, err := store.Open(":memory:")
+	if err != nil {
+		t.Fatalf("Open(:memory:) error = %v", err)
+	}
+	if err := loadSeedData(seedClock, database); err != nil {
+		t.Fatalf("loadSeedData() error = %v", err)
+	}
+
+	transactions, err := database.Transactions("acct-1")
+	if err != nil {
+		t.Fatalf("Transactions(%q) error = %v", "acct-1", err)
+	}
+	if len(transactions) < 2 {
+		t.Fatalf("acct-1 transactions = %d, want at least 2", len(transactions))
+	}
+
+	newest, secondNewest := transactions[0], transactions[1]
+	if newest.CreatedAt != secondNewest.CreatedAt {
+		t.Fatalf("expected the two most recent acct-1 transactions to share a timestamp; got %v (%s) and %v (%s)", newest.CreatedAt, newest.ID, secondNewest.CreatedAt, secondNewest.ID)
+	}
+	if newest.ID != "txn-0012" || secondNewest.ID != "txn-0011" {
+		t.Fatalf("tied-timestamp rows ordered as %s, %s; want txn-0012 before txn-0011 per id DESC tiebreak", newest.ID, secondNewest.ID)
+	}
+	if len(transactions) > 2 && transactions[2].CreatedAt == newest.CreatedAt {
+		t.Fatalf("expected only one tied pair at the top of acct-1's history; transaction %s also shares the newest timestamp", transactions[2].ID)
 	}
 }
 
