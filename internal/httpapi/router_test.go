@@ -539,6 +539,104 @@ func TestRouterComposesDetailedPageRejectionMessages(t *testing.T) {
 		})
 	}
 
+	t.Run("tampered rejection details degrade to plain messages", func(t *testing.T) {
+		for _, tt := range []struct {
+			name    string
+			path    string
+			want    string
+			omitted string
+		}{
+			{
+				name: "absent free-text detail",
+				path: "/?account=acct-1&error=amount_malformed",
+				want: "Amount is malformed.",
+			},
+			{
+				name:    "over-long free-text detail",
+				path:    "/?account=acct-1&error=amount_malformed&detail=" + strings.Repeat("a", 33),
+				want:    "Amount is malformed.",
+				omitted: strings.Repeat("a", 33),
+			},
+			{
+				name:    "control free-text detail",
+				path:    "/?account=acct-1&error=amount_malformed&detail=bad%0Avalue",
+				want:    "Amount is malformed.",
+				omitted: "bad\nvalue",
+			},
+			{
+				name:    "non-numeric description count",
+				path:    "/?account=acct-1&error=description_too_long&detail=abc",
+				want:    "Description is too long.",
+				omitted: "abc",
+			},
+			{
+				name:    "too-small description count",
+				path:    "/?account=acct-1&error=description_too_long&detail=3",
+				want:    "Description is too long.",
+				omitted: "3",
+			},
+			{
+				name:    "decimal cents detail",
+				path:    "/?account=acct-1&error=balance_would_go_negative&detail=12.50",
+				want:    "Balance would go negative.",
+				omitted: "12.50",
+			},
+			{
+				name:    "detail for a rule with no value",
+				path:    "/?account=acct-1&error=description_empty&detail=ignored-detail",
+				want:    "Description must not be empty.",
+				omitted: "ignored-detail",
+			},
+			{
+				name:    "detail for an unknown identifier",
+				path:    "/?account=acct-1&error=not_a_real_code&detail=unknown-detail",
+				want:    "Unable to post transaction.",
+				omitted: "unknown-detail",
+			},
+		} {
+			t.Run(tt.name, func(t *testing.T) {
+				rec := httptest.NewRecorder()
+				router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, tt.path, nil))
+				body := rec.Body.String()
+
+				_, panel := pageErrorPanel(t, body)
+				if got := strings.TrimSpace(panel); got != tt.want {
+					t.Errorf("error panel = %q, want %q", got, tt.want)
+				}
+				if tt.omitted != "" && strings.Contains(body, tt.omitted) {
+					t.Errorf("page rendered tampered detail %q; body = %s", tt.omitted, body)
+				}
+			})
+		}
+	})
+
+	t.Run("script-like amount detail is escaped visible text", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/?account=acct-1&error=amount_malformed&detail=%3Cscript%3Ealert%281%29%3C%2Fscript%3E", nil))
+		body := rec.Body.String()
+
+		_, panel := pageErrorPanel(t, body)
+		if got, want := strings.TrimSpace(panel), "Amount is malformed. Submitted: &lt;script&gt;alert(1)&lt;/script&gt;."; got != want {
+			t.Errorf("error panel = %q, want %q", got, want)
+		}
+		if strings.Contains(strings.ToLower(body), "<script") {
+			t.Errorf("page rendered a raw script element; body = %s", body)
+		}
+	})
+
+	t.Run("unknown account cannot supply balance context for a valid detail", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/?account=acct-nope&error=balance_would_go_negative&detail=-200000", nil))
+
+		_, panel := pageErrorPanel(t, rec.Body.String())
+		if got, want := strings.TrimSpace(panel), "Balance would go negative."; got != want {
+			t.Errorf("error panel = %q, want %q", got, want)
+		}
+		if strings.Contains(panel, "Posting") {
+			t.Errorf("unknown-account balance rejection included a Posting clause; panel = %q", panel)
+		}
+	})
+
 	t.Run("no error parameter renders no panel", func(t *testing.T) {
 		rec := httptest.NewRecorder()
 		router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/?account=acct-1", nil))
