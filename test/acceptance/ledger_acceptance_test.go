@@ -10,6 +10,8 @@ package acceptance
 // here. See .pipeline/fr-coverage.md for the per-FR disposition.
 
 import (
+	"bytes"
+	"encoding/csv"
 	"fmt"
 	"html"
 	"net/http"
@@ -18,11 +20,88 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 )
 
 var txnID = regexp.MustCompile(`^txn-\d{4}$`)
+
+// TestAcceptanceCSVExport covers the command-line export boundary: it must
+// expose the same ordered transaction log as the JSON API and remain stable
+// across repeated invocations.
+func TestAcceptanceCSVExport(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "acceptance.db")
+	seedDB(t, dbPath)
+	base, _ := startServer(t, dbPath)
+	a := newAppAt(t, dbPath, base)
+
+	accountID := a.accounts()[0].ID
+	txs := a.transactions(accountID)
+	stdout, stderr, err := exportCSV(t, dbPath, accountID)
+	if err != nil {
+		t.Fatalf("export %s: %v; stderr:\n%s", accountID, err, stderr)
+	}
+	if len(stderr) != 0 {
+		t.Errorf("export %s stderr = %q, want empty", accountID, stderr)
+	}
+	records, err := csv.NewReader(bytes.NewReader(stdout)).ReadAll()
+	if err != nil {
+		t.Fatalf("parse export for %s: %v; stdout:\n%s", accountID, err, stdout)
+	}
+	if got, want := records[0], []string{"id", "amount_cents", "description", "created_at"}; !equalStrings(got, want) {
+		t.Fatalf("CSV header = %q, want %q", got, want)
+	}
+	if got, want := len(records)-1, len(txs); got != want {
+		t.Fatalf("CSV transaction count = %d, want %d", got, want)
+	}
+	for i, tx := range txs {
+		want := []string{tx.ID, strconv.FormatInt(tx.AmountCents, 10), tx.Description, tx.CreatedAt}
+		if got := records[i+1]; !equalStrings(got, want) {
+			t.Errorf("CSV transaction %d = %q, want %q", i, got, want)
+		}
+	}
+
+	stdoutAgain, stderrAgain, err := exportCSV(t, dbPath, accountID)
+	if err != nil {
+		t.Fatalf("second export %s: %v; stderr:\n%s", accountID, err, stderrAgain)
+	}
+	if !bytes.Equal(stdoutAgain, stdout) {
+		t.Errorf("repeated export differs:\nfirst:  %q\nsecond: %q", stdout, stdoutAgain)
+	}
+
+	empty, emptyStderr, err := exportCSV(t, dbPath, "acct-3")
+	if err != nil {
+		t.Fatalf("export acct-3: %v; stderr:\n%s", err, emptyStderr)
+	}
+	if got, want := string(empty), "id,amount_cents,description,created_at\n"; got != want {
+		t.Errorf("empty-account export = %q, want %q", got, want)
+	}
+
+	unknownID := "acct-nope"
+	unknown, unknownStderr, err := exportCSV(t, dbPath, unknownID)
+	if err == nil {
+		t.Errorf("export %s exited zero", unknownID)
+	}
+	if len(unknown) != 0 {
+		t.Errorf("export %s stdout = %q, want zero bytes", unknownID, unknown)
+	}
+	if !strings.Contains(string(unknownStderr), unknownID) {
+		t.Errorf("export %s stderr = %q, want requested id", unknownID, unknownStderr)
+	}
+}
+
+func equalStrings(got, want []string) bool {
+	if len(got) != len(want) {
+		return false
+	}
+	for i := range got {
+		if got[i] != want[i] {
+			return false
+		}
+	}
+	return true
+}
 
 // TestAcceptanceAccountSelectionAndBalance covers Story 1.
 //
