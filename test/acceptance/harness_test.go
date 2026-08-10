@@ -131,6 +131,20 @@ func seedDB(t *testing.T, dbPath string) {
 	}
 }
 
+// exportCSV runs the real `export` subcommand against dbPath while keeping the
+// document on stdout separate from diagnostics on stderr.
+func exportCSV(t *testing.T, dbPath, accountID string) (stdout, stderr string, err error) {
+	t.Helper()
+
+	cmd := exec.Command(serverBin, "export", accountID)
+	cmd.Env = append(os.Environ(), "LEDGER_DB_PATH="+dbPath)
+	var stdoutBuffer, stderrBuffer bytes.Buffer
+	cmd.Stdout = &stdoutBuffer
+	cmd.Stderr = &stderrBuffer
+	err = cmd.Run()
+	return stdoutBuffer.String(), stderrBuffer.String(), err
+}
+
 // startServer runs the real `serve` subcommand on a free port. The returned stop
 // function is idempotent and is also registered as test cleanup.
 func startServer(t *testing.T, dbPath string) (base string, stop func()) {
