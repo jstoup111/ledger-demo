@@ -16,11 +16,20 @@ harness_version: ">=0.99.0"
 # rate limit, timeout, or rejection. Every transition logs a warning naming the
 # step, the failed provider, and the reason.
 #
-# Deliberately NOT pinned here: build inherits Codex's own policy defaults
-# (gpt-5.6-terra at medium effort for this step) rather than copying
-# reporting_app's `model: gpt-5.6-sol, effort: low`. That pin was operator tuning
-# for a long Rails suite in July; this repo is 32 small Go TDD tasks, and leaving
-# it unpinned keeps the retry-escalation ladder intact.
+# Build IS pinned here, matching reporting_app (`model: gpt-5.6-sol`, `effort:
+# low`). This reverses an earlier note in this file that argued for leaving build
+# on Codex's own defaults (gpt-5.6-terra at medium) to keep the retry-escalation
+# ladder intact.
+#
+# Operator 2026-08-09: pin it, for two reasons. Behavior should transfer between
+# the two repos rather than diverge on the one step that does the most work; and
+# this project is a live stage prop whose whole constraint is wall-clock — the
+# measured csv-export run spent 20m12s of its 37m02s total inside `build`, so the
+# build step is where the demo's time budget is won or lost.
+#
+# The ladder argument still stands on its merits; it is simply outranked by
+# repo-to-repo consistency and the timing target. Revisit if a run starts
+# exhausting sol's ladder instead of finishing on it.
 #
 # CAUTION: the array form above is mutually exclusive with a `steps.build.tdd`
 # block. That block's validation reads the TOP-LEVEL llm_provider and requires it
@@ -31,6 +40,13 @@ harness_version: ">=0.99.0"
 llm_provider: [codex, claude]
 
 steps:
+  # BUILD — the implementation lane. Provider stays codex (inherited from the
+  # top-level array's first entry); only the model and effort are pinned, which
+  # is exactly reporting_app's shape.
+  build:
+    model: gpt-5.6-sol
+    effort: low
+
   # DECIDE — requirements, design, and traceability judgement. Wrong output here
   # cascades into every downstream step, so it stays on claude.
   explore:
