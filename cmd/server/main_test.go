@@ -1,6 +1,8 @@
 package main
 
 import (
+	"bytes"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -18,10 +20,102 @@ func TestRunRejectsUnknownCommandWithoutStartingServer(t *testing.T) {
 	if err == nil {
 		t.Fatal("run(frobnicate) error = nil, want error")
 	}
-	for _, command := range []string{"serve", "seed"} {
+	for _, command := range []string{"serve", "seed", "export"} {
 		if !strings.Contains(err.Error(), command) {
 			t.Errorf("run(frobnicate) error = %q, want valid command %q", err, command)
 		}
+	}
+}
+
+func TestRunExportWritesSeededAccountCSVToStandardOutput(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "ledger.db")
+	t.Setenv("LEDGER_DB_PATH", dbPath)
+	if err := run("seed"); err != nil {
+		t.Fatalf("run(seed) error = %v", err)
+	}
+
+	var output bytes.Buffer
+	originalStdout := stdout
+	t.Cleanup(func() { stdout = originalStdout })
+	stdout = &output
+
+	if err := run("export", "acct-1"); err != nil {
+		t.Fatalf("run(export, acct-1) error = %v", err)
+	}
+
+	lines := strings.Split(strings.TrimSuffix(output.String(), "\n"), "\n")
+	if got, want := lines[0], "id,amount_cents,description,created_at"; got != want {
+		t.Errorf("CSV header = %q, want %q", got, want)
+	}
+	if got, want := lines[1], "txn-0012,-5500,Concert tickets,2026-08-08T14:30:00Z"; got != want {
+		t.Errorf("newest CSV transaction = %q, want %q", got, want)
+	}
+}
+
+func TestRunExportRejectsWrongNumberOfArgumentsWithoutOutput(t *testing.T) {
+	for _, args := range [][]string{nil, {"acct-1", "acct-2"}} {
+		t.Run(strings.Join(args, ","), func(t *testing.T) {
+			var output bytes.Buffer
+			originalStdout := stdout
+			t.Cleanup(func() { stdout = originalStdout })
+			stdout = &output
+
+			err := run("export", args...)
+			if err == nil || !strings.Contains(err.Error(), "exactly one account ID is expected") {
+				t.Fatalf("run(export, %v) error = %v, want exactly-one-account-ID error", args, err)
+			}
+			if got := output.Len(); got != 0 {
+				t.Errorf("output length = %d, want 0", got)
+			}
+		})
+	}
+}
+
+func TestRunExportRejectsUnknownAccountWithoutOutput(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "ledger.db")
+	t.Setenv("LEDGER_DB_PATH", dbPath)
+	if err := run("seed"); err != nil {
+		t.Fatalf("run(seed) error = %v", err)
+	}
+
+	var output bytes.Buffer
+	originalStdout := stdout
+	t.Cleanup(func() { stdout = originalStdout })
+	stdout = &output
+
+	err := run("export", "acct-nope")
+	if !errors.Is(err, ledger.ErrAccountNotFound) {
+		t.Fatalf("run(export, acct-nope) error = %v, want error wrapping %v", err, ledger.ErrAccountNotFound)
+	}
+	if !strings.Contains(err.Error(), "acct-nope") {
+		t.Errorf("run(export, acct-nope) error = %q, want account ID", err)
+	}
+	if got := output.Len(); got != 0 {
+		t.Errorf("output length = %d, want 0", got)
+	}
+}
+
+func TestRunExportReportsMissingParentDatabaseDirectory(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "missing", "ledger.db")
+	t.Setenv("LEDGER_DB_PATH", dbPath)
+
+	var output bytes.Buffer
+	originalStdout := stdout
+	t.Cleanup(func() { stdout = originalStdout })
+	stdout = &output
+
+	err := run("export", "acct-1")
+	if err == nil {
+		t.Fatal("run(export) error = nil, want error")
+	}
+	if !strings.Contains(err.Error(), dbPath) {
+		t.Errorf("run(export) error = %q, want database path %q", err, dbPath)
+	}
+	if got := output.Len(); got != 0 {
+		t.Errorf("output length = %d, want 0", got)
+	}
+	if _, statErr := os.Stat(dbPath); !os.IsNotExist(statErr) {
+		t.Errorf("export() created database %q; stat error = %v", dbPath, statErr)
 	}
 }
 
