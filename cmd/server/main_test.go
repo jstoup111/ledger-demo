@@ -1,6 +1,8 @@
 package main
 
 import (
+	"bytes"
+	"encoding/csv"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -15,13 +17,123 @@ import (
 
 func TestRunRejectsUnknownCommandWithoutStartingServer(t *testing.T) {
 	err := run("frobnicate")
-	if err == nil {
-		t.Fatal("run(frobnicate) error = nil, want error")
+	if got, want := err.Error(), `unknown command "frobnicate" (want: serve, seed, export)`; got != want {
+		t.Fatalf("run(frobnicate) error = %q, want %q", got, want)
 	}
-	for _, command := range []string{"serve", "seed"} {
-		if !strings.Contains(err.Error(), command) {
-			t.Errorf("run(frobnicate) error = %q, want valid command %q", err, command)
-		}
+}
+
+func TestRunExportWritesSeededAccountCSV(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "ledger.db")
+	t.Setenv("LEDGER_DB_PATH", dbPath)
+	if err := run("seed"); err != nil {
+		t.Fatalf("run(seed) error = %v", err)
+	}
+
+	database, err := store.Open(dbPath)
+	if err != nil {
+		t.Fatalf("Open(%q) error = %v", dbPath, err)
+	}
+	transactions, err := database.Transactions("acct-1")
+	if err != nil {
+		t.Fatalf("Transactions(acct-1) error = %v", err)
+	}
+	if len(transactions) == 0 {
+		t.Fatal("Transactions(acct-1) is empty, want seeded rows")
+	}
+	if err := database.Close(); err != nil {
+		t.Fatalf("Close(%q) error = %v", dbPath, err)
+	}
+
+	var buf bytes.Buffer
+	originalStdout := stdout
+	t.Cleanup(func() { stdout = originalStdout })
+	stdout = &buf
+
+	if err := run("export", "acct-1"); err != nil {
+		t.Fatalf("run(export, acct-1) error = %v", err)
+	}
+	rows, err := csv.NewReader(bytes.NewReader(buf.Bytes())).ReadAll()
+	if err != nil {
+		t.Fatalf("parse export CSV: %v", err)
+	}
+	if len(rows) < 2 {
+		t.Fatalf("export rows = %#v, want header and at least one transaction", rows)
+	}
+	if got, want := rows[0], []string{"id", "amount_cents", "description", "created_at"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("export header = %#v, want %#v", got, want)
+	}
+	if got, want := rows[1][0], transactions[0].ID; got != want {
+		t.Fatalf("first exported transaction id = %q, want newest %q", got, want)
+	}
+}
+
+func TestRunExportRequiresExactlyOneAccountIDWithoutWriting(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+	}{
+		{name: "zero arguments"},
+		{name: "two arguments", args: []string{"acct-1", "acct-2"}},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			var buf bytes.Buffer
+			originalStdout := stdout
+			t.Cleanup(func() { stdout = originalStdout })
+			stdout = &buf
+
+			err := run("export", test.args...)
+			if err == nil || !strings.Contains(err.Error(), "exactly one account id is expected") {
+				t.Fatalf("run(export, %v) error = %v, want exactly one account id is expected", test.args, err)
+			}
+			if got := buf.Len(); got != 0 {
+				t.Fatalf("run(export, %v) wrote %d bytes, want 0", test.args, got)
+			}
+		})
+	}
+}
+
+func TestRunExportUnknownAccountNamesIDWithoutWriting(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "ledger.db")
+	t.Setenv("LEDGER_DB_PATH", dbPath)
+	if err := run("seed"); err != nil {
+		t.Fatalf("run(seed) error = %v", err)
+	}
+
+	var buf bytes.Buffer
+	originalStdout := stdout
+	t.Cleanup(func() { stdout = originalStdout })
+	stdout = &buf
+
+	const accountID = "acct-nope"
+	err := run("export", accountID)
+	if err == nil || !strings.Contains(err.Error(), accountID) {
+		t.Fatalf("run(export, %q) error = %v, want requested account id", accountID, err)
+	}
+	if got := buf.Len(); got != 0 {
+		t.Fatalf("run(export, %q) wrote %d bytes, want 0", accountID, got)
+	}
+}
+
+func TestRunExportReportsMissingParentDatabaseDirectoryWithoutWriting(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "missing", "ledger.db")
+	t.Setenv("LEDGER_DB_PATH", dbPath)
+
+	var buf bytes.Buffer
+	originalStdout := stdout
+	t.Cleanup(func() { stdout = originalStdout })
+	stdout = &buf
+
+	err := run("export", "acct-1")
+	if err == nil || !strings.Contains(err.Error(), dbPath) {
+		t.Fatalf("run(export) error = %v, want database path %q", err, dbPath)
+	}
+	if _, statErr := os.Stat(dbPath); !os.IsNotExist(statErr) {
+		t.Fatalf("run(export) created database %q; stat error = %v", dbPath, statErr)
+	}
+	if got := buf.Len(); got != 0 {
+		t.Fatalf("run(export) wrote %d bytes, want 0", got)
 	}
 }
 

@@ -26,7 +26,7 @@ One dependency total. No framework, no JS build step, no Docker. Runs fully offl
 ## Layout
 
 ```
-cmd/server/       entry point: serve + seed commands
+cmd/server/       entry point: serve + seed + export commands
 internal/ledger/  domain: accounts, transactions, balances, validation
 internal/store/   SQLite persistence behind an interface declared in internal/ledger
 internal/httpapi/ handlers, routing, JSON + HTML rendering

@@ -5,6 +5,7 @@ package main
 import (
 	"errors"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"os"
@@ -15,7 +16,10 @@ import (
 	"github.com/jstoup111/ledger-demo/internal/store"
 )
 
-var listenAndServe = http.ListenAndServe
+var (
+	listenAndServe           = http.ListenAndServe
+	stdout         io.Writer = os.Stdout
+)
 
 const (
 	defaultPort   = "8080"
@@ -30,19 +34,21 @@ func main() {
 		command = os.Args[1]
 	}
 
-	if err := run(command); err != nil {
+	if err := run(command, os.Args[2:]...); err != nil {
 		log.Fatalf("error: %v", err)
 	}
 }
 
-func run(command string) error {
+func run(command string, args ...string) error {
 	switch command {
 	case "serve":
 		return serve()
 	case "seed":
 		return seed()
+	case "export":
+		return export(args)
 	default:
-		return fmt.Errorf("unknown command %q (want: serve, seed)", command)
+		return fmt.Errorf("unknown command %q (want: serve, seed, export)", command)
 	}
 }
 
