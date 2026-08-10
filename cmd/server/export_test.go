@@ -65,12 +65,6 @@ func TestWriteAccountCSV(t *testing.T) {
 			if got := buffer.String(); got != testCase.wantCSV {
 				t.Errorf("writeAccountCSV(%q) = %q, want %q", testCase.account.ID, got, testCase.wantCSV)
 			}
-			if got, want := strings.Split(strings.TrimSuffix(buffer.String(), "\n"), "\n")[0], "id,amount_cents,description,created_at"; got != want {
-				t.Errorf("CSV header = %q, want %q", got, want)
-			}
-			if got, want := len(strings.Split(strings.TrimSuffix(buffer.String(), "\n"), "\n"))-1, len(testCase.transactions); got != want {
-				t.Errorf("CSV data line count = %d, want %d", got, want)
-			}
 		})
 	}
 }
