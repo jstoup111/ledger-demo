@@ -10,6 +10,9 @@ package acceptance
 // here. See .pipeline/fr-coverage.md for the per-FR disposition.
 
 import (
+	"bytes"
+	"encoding/csv"
+	"errors"
 	"fmt"
 	"html"
 	"net/http"
@@ -18,11 +21,125 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 )
 
 var txnID = regexp.MustCompile(`^txn-\d{4}$`)
+
+// TestAcceptanceCSVExportAgreesWithJSONListing exercises the export command
+// through the compiled binary, comparing its document with the live listing.
+//
+// Covers: CSV export Story 1 and Story 2
+func TestAcceptanceCSVExportAgreesWithJSONListing(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "acceptance.db")
+	seedDB(t, dbPath)
+
+	base, stop := startServer(t, dbPath)
+	defer stop()
+	a := newAppAt(t, dbPath, base)
+
+	accounts := a.accounts()
+	if len(accounts) == 0 {
+		t.Fatal("seeded account listing is empty")
+	}
+	accountID := accounts[0].ID
+
+	t.Run("the CSV rows match the JSON transaction listing in order", func(t *testing.T) {
+		stdout, stderr, err := exportCSV(t, dbPath, accountID)
+		if err != nil {
+			t.Fatalf("export %q: %v; stderr:\n%s", accountID, err, stderr)
+		}
+		if len(stderr) != 0 {
+			t.Errorf("export %q stderr = %q, want empty", accountID, stderr)
+		}
+
+		records, err := csv.NewReader(bytes.NewReader(stdout)).ReadAll()
+		if err != nil {
+			t.Fatalf("export %q is not CSV: %v; stdout:\n%s", accountID, err, stdout)
+		}
+		if len(records) == 0 {
+			t.Fatal("export has no header row")
+		}
+		if got, want := records[0], []string{"id", "amount_cents", "description", "created_at"}; !slices.Equal(got, want) {
+			t.Fatalf("CSV header = %q, want %q", got, want)
+		}
+
+		txs := a.transactions(accountID)
+		if got, want := len(records)-1, len(txs); got != want {
+			t.Fatalf("CSV transaction rows = %d, JSON transactions = %d", got, want)
+		}
+		for i, tx := range txs {
+			row := records[i+1]
+			if len(row) != 4 {
+				t.Fatalf("CSV row %d has %d columns, want 4: %q", i+1, len(row), row)
+			}
+			if got, want := row[0], tx.ID; got != want {
+				t.Errorf("CSV row %d id = %q, want JSON id %q", i+1, got, want)
+			}
+			if got, want := row[1], fmt.Sprintf("%d", tx.AmountCents); got != want {
+				t.Errorf("CSV row %d amount_cents = %q, want JSON amount_cents %q", i+1, got, want)
+			}
+			if got, want := row[3], tx.CreatedAt; got != want {
+				t.Errorf("CSV row %d created_at = %q, want JSON created_at %q", i+1, got, want)
+			}
+		}
+	})
+
+	t.Run("repeated exports are byte-identical", func(t *testing.T) {
+		first, firstStderr, firstErr := exportCSV(t, dbPath, accountID)
+		second, secondStderr, secondErr := exportCSV(t, dbPath, accountID)
+		if firstErr != nil || secondErr != nil {
+			t.Fatalf("export errors = (%v, %v); stderr = (%q, %q)", firstErr, secondErr, firstStderr, secondStderr)
+		}
+		if !bytes.Equal(first, second) {
+			t.Errorf("repeated exports differ.\nfirst:\n%s\nsecond:\n%s", first, second)
+		}
+	})
+
+	t.Run("the seeded empty account exports the header alone", func(t *testing.T) {
+		emptyAccountID := ""
+		for _, account := range accounts {
+			if len(a.transactions(account.ID)) == 0 {
+				emptyAccountID = account.ID
+				break
+			}
+		}
+		if emptyAccountID == "" {
+			t.Fatal("seeded data has no empty account")
+		}
+
+		stdout, stderr, err := exportCSV(t, dbPath, emptyAccountID)
+		if err != nil {
+			t.Fatalf("export empty account %q: %v; stderr:\n%s", emptyAccountID, err, stderr)
+		}
+		if got, want := string(stdout), "id,amount_cents,description,created_at\n"; got != want {
+			t.Errorf("empty-account CSV = %q, want header alone %q", got, want)
+		}
+	})
+
+	t.Run("an unknown account fails silently on stdout and names the requested id on stderr", func(t *testing.T) {
+		const unknownAccountID = "acct-nope"
+		stdout, stderr, err := exportCSV(t, dbPath, unknownAccountID)
+		if err == nil {
+			t.Fatal("exporting an unknown account exited 0")
+		}
+		var exitErr *exec.ExitError
+		if !errors.As(err, &exitErr) {
+			t.Fatalf("exporting an unknown account error = %T (%v), want *exec.ExitError", err, err)
+		}
+		if exitErr.ExitCode() == 0 {
+			t.Errorf("exporting an unknown account exit code = 0, want non-zero")
+		}
+		if len(stdout) != 0 {
+			t.Errorf("unknown-account stdout = %q, want zero bytes", stdout)
+		}
+		if !strings.Contains(string(stderr), unknownAccountID) {
+			t.Errorf("unknown-account stderr does not name %q: %q", unknownAccountID, stderr)
+		}
+	})
+}
 
 // TestAcceptanceAccountSelectionAndBalance covers Story 1.
 //
