@@ -2,6 +2,28 @@
 
 Tier: S
 
+> **Amended 2026-08-13 by operator:** Tier S remains approved after replacing the CLI-only delivery
+> with a browser download. The current scope adds no route, model, schema, dependency, authentication,
+> state machine, or domain behavior. It touches one existing HTTP handler, the existing page/template
+> presentation, focused tests, and README documentation. The original signal table and rationale below
+> are retained as superseded history; references to `cmd/server`, a subcommand, no HTTP change, and no
+> template/style change no longer describe the approved scope.
+
+## Current Small signals
+
+| Signal | Current value | Reads as |
+|---|---|---|
+| Models / schema | 0 new; existing accounts and transactions are unchanged | S |
+| Integrations / dependencies | 0 new; CSV support uses the Go standard library | S |
+| Auth / users / sessions | None | S |
+| State machines | None; the feature is read-only | S |
+| Story count | 2: download behavior and preserved existing behavior/error paths | S |
+| Blast radius | Existing `internal/httpapi` and `web` presentation surfaces, focused tests, README | S |
+| Routes | 1 existing route gains an explicit CSV representation; 0 routes added | S |
+| New interfaces / seams | 0 | S |
+
+Small-tier skips remain unchanged: no architecture diagram/review, conflict-check, or coherence-check.
+
 ## Signals
 
 | Signal | Value | Reads as |

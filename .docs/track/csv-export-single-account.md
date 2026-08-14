@@ -2,6 +2,17 @@
 
 Track: product
 
+> **Amended 2026-08-13 by operator:** The approved product surface is now a visible CSV download
+> control for the selected account, served by extending the existing transaction-listing route's
+> response behavior. This supersedes the command-line delivery described below. The scope remains
+> one account and one raw four-column document, with no sixth route, CLI export, JavaScript, filters,
+> date ranges, multi-account export, summaries, statements, or other reporting. The operator chose
+> this browser-only approach to keep the live full loop within 30–40 minutes.
+
+Scope boundary: One visible CSV download control for the valid selected account, using the existing
+transaction-listing HTTP surface; no sixth route, CLI export, JavaScript, filters, date ranges,
+multi-account export, summaries, statements, or other reporting.
+
 The change adds a capability a person invokes and reads. A presenter types one command and gets a
 table of ledger data back in a format an audience already understands; the acceptance signal is what
 that output contains and what order it is in, not how it is produced internally. That is a user-facing
@@ -54,3 +65,10 @@ because it was written down.
    target obscures rather than simplifies. The subcommand is already one command.
 
 **Chosen: approach 1.** This is settled and recorded here so it is not reopened downstream.
+
+> **Amended 2026-08-13 by operator:** Approach 1 above is superseded. The chosen approach reuses the
+> existing account-transactions GET route for an explicitly requested CSV representation and adds a
+> visible download control to the selected-account page. A separate sixth route was rejected because
+> the five-route contract is still governing; retaining both the CLI and browser delivery was rejected
+> because it adds a second invocation surface and a shared rendering seam without improving the live
+> demo outcome.

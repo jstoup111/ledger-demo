@@ -6,6 +6,161 @@
 **Origin:** intake issue `jstoup111/ledger-demo#14`
 **Supersedes:** nothing. Amends no accepted requirement.
 
+## Browser-download amendment — 2026-08-13
+
+**Amendment Status:** Approved
+
+> **Amended 2026-08-13 by operator:** The browser-download requirements in this section supersede
+> every original statement below that requires a command-line invocation, standard-output delivery,
+> or no page/HTTP change. The original text remains as decision history. Its narrow authorization,
+> raw four-field CSV content, integer-cents rule, newest-first order, empty-versus-missing-account
+> distinction, and determinism requirements remain in force where this amendment does not replace
+> them.
+
+### Problem / Background
+
+PR #24 gives a terminal user a narrow CSV export, but the live demo is driven from the account page.
+A presenter should not have to leave that page, identify a command, or redirect output just to obtain
+the selected account's rows. The missing visible action makes the feature undiscoverable on a
+projector and leaves the intended demo flow incomplete.
+
+### Goals
+
+1. A presenter can download the selected account's transactions as CSV directly from the account
+   page through one clearly labelled control.
+2. The downloaded rows agree with the existing page and programmatic listing in values and order.
+3. The interaction remains deterministic and distinguishes an empty account from an account that
+   does not exist.
+4. The feature stays small enough for a 30–40 minute live full-loop demonstration.
+
+### Non-Goals
+
+- A command-line export or any second invocation surface.
+- A new standalone HTTP endpoint; the published endpoint count remains five.
+- JavaScript or client-side CSV construction.
+- Exporting multiple accounts, date filtering, column selection, configurable formatting, or a
+  user-chosen destination.
+- Statements, totals, running balances, summaries, grouping, reporting, or any broader exception to
+  the project's non-goals.
+- Any write to accounts, transactions, seed data, or schema.
+
+### Users / Personas
+
+- **Presenter:** operates the account page on a projector and needs one obvious action that downloads
+  the currently selected account's rows.
+
+### Amended Functional Requirements
+
+- **FR-1** Whenever a valid account is selected, the page presents one clearly labelled
+  `Download CSV` control associated with that account.
+- **FR-2** Activating the control downloads a CSV document for exactly the selected account without
+  requiring a terminal step and without changing ledger state.
+- **FR-3** The document contains one header row followed by one row per transaction, with exactly four
+  fields per row: transaction identifier, signed amount in integer cents, description, and recorded
+  time.
+- **FR-4** Transaction rows appear newest first and carry the same identifiers, amounts, descriptions,
+  and recorded times as the existing programmatic listing for that account.
+- **FR-5** A valid account with no transactions still offers the control; its download succeeds with
+  the header row and no data rows.
+- **FR-6** A request naming an account that does not exist fails as not found and does not return a
+  CSV document that could be mistaken for an empty account.
+- **FR-7** Repeated downloads against the same unchanged ledger produce byte-identical documents.
+- **FR-8** Existing behavior remains unchanged outside an explicit download: the account page still
+  selects and displays accounts normally, transaction posting is unchanged, and the programmatic
+  transaction listing retains its existing JSON response.
+
+### Non-Functional Requirements
+
+- **NFR-1 — Existing HTTP contract.** The published surface remains exactly five endpoints; existing
+  status codes and ordinary response behavior remain compatible.
+- **NFR-2 — Money integrity.** Amounts remain signed `int64` cents throughout, with no floating-point
+  arithmetic or formatting.
+- **NFR-3 — Determinism.** The feature reads no wall clock, introduces no randomness, and preserves
+  the existing stable transaction order.
+- **NFR-4 — Dependency boundary.** The project keeps its single existing third-party dependency and
+  requires no network service.
+- **NFR-5 — Demo presentation.** The control remains legible and operable in the existing
+  projector-oriented page.
+- **NFR-6 — Test budget.** The deterministic full suite remains under ten seconds.
+
+### Acceptance Criteria / Success Metrics
+
+- Select a populated account and activate `Download CSV`: the browser downloads one CSV document;
+  its data rows match that account's programmatic transaction listing element for element and in the
+  same order.
+- Switch to another account and download again: only the newly selected account's rows appear.
+- Select the seeded empty account: the control remains visible and the download contains only the
+  header row.
+- Request a download for a missing account: the response is not found and no misleading CSV document
+  is returned.
+- Request the ordinary programmatic transaction listing: its status, content type, and JSON body are
+  unchanged.
+- Repeated downloads for unchanged data are byte-identical; the endpoint count remains five; no
+  ledger row changes.
+
+### Scope
+
+**In:** one selected account, one visible download control, one raw CSV document, existing ordering
+and values, empty- and missing-account behavior, preservation of the ordinary page and JSON listing.
+
+**Out:** CLI delivery, additional endpoints, JavaScript, additional export choices, statements,
+summaries, calculations, authentication, infrastructure, and every unrelated non-goal in
+`CLAUDE.md`.
+
+### Key Product Decisions & Rationale
+
+- **Browser-only delivery:** chosen over keeping both browser and CLI surfaces because the visible
+  demo outcome is the goal and duplicate invocation paths threaten the time box.
+- **Selected account only:** keeps the action unambiguous and prevents the exception from expanding
+  into reporting.
+- **Raw rows only:** preserves PR #24's narrow authorization; no totals or narrative are added.
+- **Existing listing semantics:** one ordering and one set of values prevent the page, download, and
+  programmatic listing from disagreeing during a demo.
+
+### Dependencies
+
+- The account page already has a single selected-account context.
+- The existing programmatic listing already exposes the four transaction values and deterministic
+  newest-first order the download must match.
+- The approved architecture and tests fix the published HTTP surface at five endpoints.
+- The project already distinguishes missing accounts from valid accounts with empty histories.
+
+### Open Questions
+
+None. The operator selected browser-only delivery, Product track, and Tier S; the inherited five-route
+constraint and existing response contract bound the remaining behavior.
+
+### Verify-Claims Ledger — PRD amendment
+
+#### Claims
+
+- [verified] The page has one selected-account context and already renders that account's transaction
+  list — read `internal/httpapi/router.go` and `web/index.html.tmpl`.
+- [verified] The ordinary programmatic listing returns the same stored rows in deterministic
+  newest-first order — read `handleAccountTransactions` and `store.Transactions`.
+- [verified] Exactly five HTTP endpoints are a governing constraint, not merely an observation — read
+  `.docs/architecture/containers.md` and `TestNewRouterDeclaresExactlyFiveRoutes`.
+
+#### Assumptions
+
+- [load-bearing, 90%] A valid empty account should still show the control and download a header-only
+  document.
+  - Basis: inferred from PR #24's accepted empty-account requirement and the operator's choice to
+    replace only the delivery surface.
+  - Impact if wrong: FR-5 and its story scenarios change.
+  - Confirm by: operator approval of this amendment.
+  - **Status: APPROVED by operator 2026-08-13**
+- [load-bearing, 95%] PR #24's four-field, newest-first, integer-cents CSV semantics remain desired.
+  - Basis: inferred from the request to add a button to PR #24 and the selection of the approach that
+    replaces delivery rather than document content.
+  - Impact if wrong: FR-3, FR-4, and the implementation tasks change.
+  - Confirm by: operator approval of this amendment.
+  - **Status: APPROVED by operator 2026-08-13**
+
+#### Verdict
+
+CLEAR — the operator approved the amendment and both load-bearing assumptions on 2026-08-13.
+
 ## Authorization — read before the Non-Goals section
 
 "Statements, exports, or reporting" is on this project's non-goals list, and that list is the
@@ -201,6 +356,11 @@ here that is *not* an assumption: it is stated in writing by the operator in int
 | A3 | The four column headers should be the field names the programmatic listing already publishes for those values, in the order FR-2 states. | 85% | `verified` that those four field names exist and are already published for exactly these values; `inferred` that reusing them is preferable to inventing spreadsheet-friendly titles. | Only the header row's text changes. FR-2's column set and order, and every other FR, are unaffected. | Operator reads one header row. |
 | A4 | Emitting no document at all — not even a header — is the right failure for an unknown account, and a header-only document is the right success for an empty account. | 90% | `verified` that the intake issue states the unknown-account case must not produce an empty or headers-only file; the empty-account counterpart in FR-6 is `inferred` from that same distinction. | FR-5 and FR-6 would collapse into one behavior, losing the distinction between "no such account" and "no history". | Operator reads FR-5 and FR-6 together. |
 | A5 | The standard library's default CSV conventions — its record separator and its automatic quoting of fields that need it — are acceptable as-is, since the intake issue puts quoting configuration out of scope. | 85% | `inferred` from the issue's explicit exclusion of quoting and escaping configuration, plus the determinism requirement, which the defaults satisfy. | Only the emitted punctuation changes for descriptions that contain a separator or a quote. No FR changes. | Operator opens one exported file in a spreadsheet. |
+
+> **Amended 2026-08-13 by operator:** A1 is confirmed by the approved Tier S decision. A2 and A5 are
+> superseded because the CLI delivery no longer exists. A3 and A4 are confirmed by approval of the
+> browser-download amendment's FR-3 through FR-6. The original assumption table remains as history;
+> it contains no pending input to the amended scope.
 
 ## Corrections to the Intake Issue's Claims
 

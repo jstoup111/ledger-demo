@@ -1,6 +1,11 @@
+**Status:** Accepted
+
 # Stories — One Account's Transactions as CSV
 
 **Status:** Accepted
+
+> **Amended 2026-08-13 by operator:** The leading status marker is canonical for this amendment. This
+> original Accepted marker is retained as the approval history of the CLI-only stories.
 
 **Feature:** csv-export-single-account · **Tier:** S · **Track:** product
 **Source:** `.docs/specs/2026-08-09-csv-export-single-account.md` (Approved, FR-1 … FR-8)
@@ -14,10 +19,51 @@ mechanism choices left to `.docs/plans/csv-export-single-account.md`; the criter
 command word `export` only because the PRD's FR-1 does (assumption A2), and are otherwise written so
 that a different spelling would still satisfy them.
 
+## Browser-download amendment — 2026-08-13
+
+> **Amended 2026-08-13 by operator:** Story identifiers 1 and 2 remain stable, but their amended
+> criteria below are authoritative. Every original criterion and Done-When item requiring a command,
+> standard output, command arguments, or an unchanged page is superseded. The raw four-field document,
+> integer-cents, newest-first, empty-versus-missing-account, determinism, read-only, and five-endpoint
+> guarantees remain in force.
+
+### Verify-Claims Ledger
+
+- [verified] The amended PRD is Approved and enumerates FR-1 through FR-8 for browser delivery.
+- [verified] A valid selected account exists in the page data for both populated and empty accounts;
+  missing accounts render a distinct error state.
+- [verified] The transaction listing already distinguishes expected not-found failures from unexpected
+  store failures before it serializes a successful response.
+- [approved] Empty accounts retain a visible control and produce a header-only document — operator
+  approved the PRD amendment on 2026-08-13.
+- [approved] The four-field, integer-cents, newest-first document semantics remain unchanged — operator
+  approved the PRD amendment on 2026-08-13.
+
+**Verdict:** CLEAR — no unconfirmed load-bearing assumptions remain.
+
 ## Negative-path categories evaluated
 
 The skill requires every category to be explicitly evaluated. Most do not apply to a read-only
 output command, and saying so is more useful than inventing a scenario.
+
+> **Amended 2026-08-13 by operator:** The original CLI-focused table below is superseded by this
+> browser-download evaluation and remains only as history.
+
+| Category | Current applicability |
+|---|---|
+| Invalid input | **Yes** — a missing account must not look like a valid empty-account CSV (Story 2) |
+| Auth / permission failures | No — authentication remains an explicit non-goal |
+| Timeouts & network errors | No — the feature introduces no external network dependency |
+| Concurrent access | No — the feature is read-only and adds no shared mutable state |
+| Resource exhaustion | No — one account's existing rows are bounded demo data; there is no upload or batch |
+| Partial failure & rollback | **Yes** — an unexpected store failure must not emit a partial CSV (Story 2) |
+| Dependency unavailability | **Yes** — an unexpected transaction-read failure returns an internal error without leaking details (Story 2) |
+| Data integrity | **Yes** — success and failure must leave ledger rows and schema unchanged (Stories 1 and 2) |
+| Cascade deletion effects | No — nothing is deleted |
+| Model-level immutability | **Yes** — transaction records remain read-only throughout download (Story 2) |
+| Exception class hierarchy | **Yes** — the existing missing-account domain failure must still map to not found rather than an internal error (Story 2) |
+| Dedup / idempotency analysis | No — duplicate detection remains an explicit non-goal; every stored row is exported independently |
+| Invariant side-effect on alternate branches | **Yes** — explicit download behavior must not alter the ordinary JSON branch or posting behavior (Story 2) |
 
 | Category | Applies? |
 |---|---|
@@ -38,6 +84,64 @@ output command, and saying so is more useful than inventing a scenario.
 ---
 
 ## Story 1: Get one account's history as a spreadsheet-shaped document
+
+> **Amended 2026-08-13 by operator:** This story is now satisfied through a visible `Download CSV`
+> control for the selected account, not through a command. The amended criteria and Done-When items
+> immediately below replace the original CLI-specific sections retained later in this story.
+
+**Amended Requirement:** FR-1, FR-2, FR-3, FR-4, FR-5, FR-7
+
+As a presenter operating the account page on a projector, I want one obvious control that downloads
+the selected account's raw transaction rows as CSV, so I never have to leave the visible demo flow.
+
+### Amended Acceptance Criteria
+
+#### Happy Path
+
+- Given a valid populated account is selected, when the page renders, then one clearly labelled
+  `Download CSV` control is visible and associated with that selected account.
+- Given that control, when the presenter activates it, then the browser receives a downloadable CSV
+  document containing one header row followed by exactly that account's transaction rows.
+- Given the downloaded rows, when they are compared with the ordinary programmatic listing for the
+  selected account, then identifiers, signed integer-cent amounts, descriptions, recorded times, and
+  newest-first order agree element for element.
+- Given the presenter switches to a different valid account, when the new control is activated, then
+  the document contains only the newly selected account's rows.
+- Given a valid selected account with no transactions, when its page renders and the control is
+  activated, then the control is present and the downloaded document contains the header row only.
+- Given an unchanged ledger, when the same selected account is downloaded twice, then the two
+  documents are byte-identical.
+
+#### Negative Paths
+
+- Given no valid account is selected because the requested account does not exist, when the error page
+  renders, then no download control is presented for another account.
+- Given transaction descriptions containing a comma, quotation mark, or line break, when the document
+  is parsed as CSV, then each row still has exactly four fields and each description round-trips
+  without corruption.
+- Given the presenter changes the selected account before downloading, when the document is read, then
+  no row from the previously selected account appears.
+- Given a valid empty account, when its document is read, then it is not mistaken for a missing account:
+  the header is present and the download succeeds.
+- Given the download is repeated, when its implementation is inspected and exercised, then it performs
+  no wall-clock read, floating-point conversion, or ledger write that could change the bytes or state.
+
+### Amended Done When
+
+- [ ] A page-level test proves a populated selected account and the seeded empty account each render
+      exactly one `Download CSV` control associated with that account.
+- [ ] A request-level test activates the control's target and asserts a downloadable CSV response with
+      the exact four-field header and one row per selected-account transaction.
+- [ ] A table-driven CSV test covers positive and negative integer-cent amounts, special-character
+      descriptions, a populated account, and an empty account.
+- [ ] A comparison test proves the download and ordinary programmatic listing agree element for
+      element and newest-first for the same account.
+- [ ] A selection test proves switching accounts changes the download source without leaking rows from
+      the prior selection.
+- [ ] An invalid-selection page test proves the error state does not render a control for a fallback
+      account.
+- [ ] A determinism test proves two downloads from unchanged data are byte-identical and the store
+      records no mutation.
 
 **Requirement:** FR-1, FR-2, FR-3, FR-4, FR-6, FR-7
 
@@ -103,6 +207,50 @@ a single command, so that my audience reads rows and columns instead of JSON.
 ---
 
 ## Story 2: A bad request fails loudly and nothing else changes
+
+> **Amended 2026-08-13 by operator:** This story now covers missing-account download failure and
+> preservation of the ordinary page, JSON listing, posting behavior, and five-endpoint contract. Its
+> original subcommand and argument-validation criteria below are superseded.
+
+**Amended Requirement:** FR-6, FR-8
+
+As a presenter, I want a missing-account download to fail clearly while ordinary ledger behavior
+remains unchanged, so the CSV feature cannot misrepresent an error or destabilize the live demo.
+
+### Amended Acceptance Criteria
+
+#### Happy Path
+
+- Given no explicit download is requested, when the existing transaction listing is read, then its
+  status, content type, JSON body, and newest-first behavior are unchanged.
+- Given the account page and transaction form, when accounts are selected and transactions are posted,
+  then their existing visible behavior and redirects are unchanged.
+- Given the feature is present, when the published HTTP surface is counted, then it remains exactly
+  five endpoints.
+
+#### Negative Paths
+
+- Given an account identifier that does not exist, when its CSV download is requested, then the
+  response is not found and does not carry a CSV document or a header-only body that could be mistaken
+  for an empty account.
+- Given the store fails unexpectedly while transactions are read, when a CSV download is requested,
+  then the response is an internal failure rather than a partial CSV document, and the underlying
+  failure is not disclosed to the browser.
+- Given a download succeeds or fails, when the store is inspected afterwards, then no account,
+  transaction, balance, seed row, or schema has changed.
+- Given the route registrations are inspected, when CSV support is present, then no sixth registration
+  or standalone CSV endpoint exists.
+
+### Amended Done When
+
+- [ ] A missing-account request test asserts not-found status and the absence of a CSV content type or
+      misleading header-only document.
+- [ ] An unexpected-store-failure test asserts an internal-error response, no partial CSV bytes, and
+      no disclosure of the underlying error.
+- [ ] Existing ordinary JSON-listing, page-selection, form-posting, and redirect tests pass unchanged.
+- [ ] The existing route-count test still asserts exactly five registrations.
+- [ ] Read-only tests prove both successful and failed downloads leave all ledger rows and schema
+      unchanged.
 
 **Requirement:** FR-5, FR-8
 
