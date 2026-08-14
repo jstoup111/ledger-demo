@@ -39,7 +39,7 @@ only ever receives an `int64` and cannot be handed a malformed amount at all.
 **Pattern consistency** — The two decisions taken here are new patterns for this codebase, and both
 are now documented: `adr-2026-08-08-one-negotiated-posting-endpoint.md` and
 `adr-2026-08-08-deterministic-transaction-ids-and-ordering.md`. No other new pattern is introduced;
-everything else follows an existing Accepted ADR.
+everything else follows an existing APPROVED ADR.
 
 **State management** — No state machine, and deliberately none: there is no pending/posted status and
 no boolean status flags (`.docs/architecture/erd.md` records their absence as intentional). A
@@ -105,15 +105,14 @@ risk this feature should mitigate.
 
 | ADR | Status | Decides |
 |---|---|---|
-| `adr-2026-08-08-one-negotiated-posting-endpoint.md` | Accepted | Open Question 1 — one endpoint, response mode by request content type. FR-9 becomes structural rather than conventional. |
-| `adr-2026-08-08-deterministic-transaction-ids-and-ordering.md` | Accepted | Open Question 2 — `txn-%04d` global sequence; `ORDER BY created_at DESC, id DESC`; no schema change. |
+| `adr-2026-08-08-one-negotiated-posting-endpoint.md` | APPROVED | Open Question 1 — one endpoint, response mode by request content type. FR-9 becomes structural rather than conventional. |
+| `adr-2026-08-08-deterministic-transaction-ids-and-ordering.md` | APPROVED | Open Question 2 — `txn-%04d` global sequence; `ORDER BY created_at DESC, id DESC`; no schema change. |
 
 Both ratify the operator-confirmed direction. Neither reopens it. Both recorded the rejected
 alternative and, more usefully, the conditions under which the decision would stop holding.
 
-Status is written as `Accepted` to match the four existing ADRs in this repository. The engineer
-`land` gate rejects an unapproved ADR fail-closed, so an unapproved intermediate state was never
-valid here.
+Status is written as `APPROVED` to match the harness's current ADR vocabulary. The engineer `land`
+gate rejects an unapproved ADR fail-closed, so an unapproved intermediate state was never valid here.
 
 ## Conditions
 

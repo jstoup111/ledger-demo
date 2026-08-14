@@ -1,7 +1,7 @@
 # ADR: One message composer, and the offending value travels as one validated query parameter
 
 **Date:** 2026-08-09
-**Status:** Accepted
+**Status:** APPROVED
 **Deciders:** authored and accepted in the DECIDE pass for `rejection-message-detail`, under the
 operator's pre-granted routing and Small-tier decisions. The operator was unavailable for the
 load-bearing choices below; each is recorded in the assumption ledger of
@@ -24,7 +24,7 @@ each message has a variable part, "agree by hand" becomes "drift", and FR-4 is a
 does not keep.
 
 **2. The offending value does not survive the page's rejection path.** By
-`adr-2026-08-08-one-negotiated-posting-endpoint.md` (Accepted), a form-encoded rejection answers
+`adr-2026-08-08-one-negotiated-posting-endpoint.md` (APPROVED), a form-encoded rejection answers
 `303 See Other` with `Location: /?account={id}&error={code}` — the POST-redirect-GET that satisfies
 base-ledger FR-7. That ADR names this cost in its own Consequences: *"A rejection's identity travels
 through a URL query parameter. The page therefore renders a message looked up from a code supplied by
@@ -63,7 +63,7 @@ is called by both the JSON writer and the page renderer.
 - **Cons:** The `?error={code}` rendering path must be retained regardless — FR-6 requires an
   unrecognized identifier to render a generic message, and an existing test pins it. So this adds a
   second rejection render path rather than replacing one, which is worse than the problem it solves. It
-  also reverses an Accepted ADR's decision with no product reason to reopen it, and that ADR rejected
+  also reverses an APPROVED ADR's decision with no product reason to reopen it, and that ADR rejected
   inline rendering on base-ledger FR-7 grounds.
 
 ### Option D: Sign the carried value so it cannot be tampered with

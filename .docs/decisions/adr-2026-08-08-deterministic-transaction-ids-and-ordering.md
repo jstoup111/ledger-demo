@@ -1,7 +1,7 @@
 # ADR: Sequential zero-padded transaction ids, with newest-first ordering tie-broken by id
 
 **Date:** 2026-08-08
-**Status:** Accepted
+**Status:** APPROVED
 **Deciders:** james.stoup
 
 ## Context

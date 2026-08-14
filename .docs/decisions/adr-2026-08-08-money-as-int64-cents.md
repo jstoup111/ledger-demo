@@ -1,7 +1,7 @@
 # ADR: Money is int64 cents throughout
 
 **Date:** 2026-08-08
-**Status:** Accepted
+**Status:** APPROVED
 **Deciders:** james.stoup
 
 ## Context
