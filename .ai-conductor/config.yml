@@ -104,6 +104,7 @@ steps:
 # convention rather than the timeout being wrong.
 test_suite:
   command: make test
+  scoped_command: go test {selectors}
   working_directory: .
   timeout_seconds: 120
 
