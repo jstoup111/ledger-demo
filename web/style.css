@@ -36,6 +36,15 @@ nav a {
   margin-right: 1rem;
 }
 
+.download {
+  display: inline-block;
+  background: #111111;
+  color: #ffffff;
+  padding: 0.6rem 1rem;
+  font-weight: 700;
+  text-decoration: none;
+}
+
 .selected-account {
   font-size: 1rem;
   font-weight: normal;

@@ -7,6 +7,19 @@ import (
 	"testing"
 )
 
+func TestEmbeddedStylesheetActivatesDownloadRule(t *testing.T) {
+	stylesheet, err := FS.ReadFile("style.css")
+	if err != nil {
+		t.Fatalf("read embedded style.css: %v", err)
+	}
+
+	activeCSS := regexp.MustCompile(`/\*[\s\S]*?\*/`).ReplaceAllString(string(stylesheet), "")
+	downloadRule := regexp.MustCompile(`(?s)\.download\s*\{[^}]*\}`)
+	if !downloadRule.MatchString(activeCSS) {
+		t.Error("active stylesheet must define a .download rule for the CSV control")
+	}
+}
+
 func TestEmbeddedStylesheetActivatesBalanceErrorAndTableRules(t *testing.T) {
 	stylesheet, err := FS.ReadFile("style.css")
 	if err != nil {
