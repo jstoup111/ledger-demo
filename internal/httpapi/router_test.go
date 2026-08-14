@@ -334,6 +334,26 @@ func TestRouterRendersAccountPageMarkup(t *testing.T) {
 	})
 }
 
+func TestRouterRendersOneCSVDownloadLinkForSelectedPopulatedAccount(t *testing.T) {
+	store := routerTestStore{
+		accounts: []ledger.Account{{ID: "acct-1", Name: "Checking"}},
+		transactions: map[string][]ledger.Transaction{
+			"acct-1": {{ID: "txn-0001", AccountID: "acct-1", Amount: 10000, Description: "Opening balance"}},
+		},
+	}
+	router, err := NewRouter(&store, routerClock)
+	if err != nil {
+		t.Fatalf("NewRouter() error = %v, want nil", err)
+	}
+
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/?account=acct-1", nil))
+
+	if got, want := strings.Count(rec.Body.String(), `<a href="/api/accounts/acct-1/transactions?format=csv">Download CSV</a>`), 1; got != want {
+		t.Errorf("Download CSV link count = %d, want %d; body = %s", got, want, rec.Body.String())
+	}
+}
+
 func TestRouterRendersPageErrorStates(t *testing.T) {
 	store := routerTestStore{
 		accounts: []ledger.Account{
