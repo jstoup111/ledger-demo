@@ -17,6 +17,11 @@ Three accounts are seeded: the first has 12 transactions, the second 9, and the 
 Their recorded times cover roughly two months of history and end at a fixed reference instant.
 The first deliberately includes one same-instant pair, so the newest-first identifier tiebreak stays covered by a real test.
 
+### CSV download
+
+Each valid selected-account page offers **Download CSV**. It downloads that account's
+transactions through the existing transaction-listing endpoint's explicit CSV representation.
+
 ## Stack
 
 Go (stdlib `net/http` with 1.22+ `ServeMux` routing), SQLite via
@@ -29,7 +34,7 @@ One dependency total. No framework, no JS build step, no Docker. Runs fully offl
 cmd/server/       entry point: serve + seed commands
 internal/ledger/  domain: accounts, transactions, balances, validation
 internal/store/   SQLite persistence behind an interface declared in internal/ledger
-internal/httpapi/ handlers, routing, JSON + HTML rendering
+internal/httpapi/ handlers, routing, JSON + HTML + CSV rendering
 internal/clock/   Clock interface, SystemClock, FixedClock
 web/              the single page and its stylesheet
 ```

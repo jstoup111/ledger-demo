@@ -2099,6 +2099,70 @@ func TestRouterFrozenRejectionsDoNotRecordTransactions(t *testing.T) {
 	}
 }
 
+func TestRouterRendersSelectedAccountCSVDownload(t *testing.T) {
+	store := routerTestStore{
+		accounts: []ledger.Account{
+			{ID: "acct-1", Name: "Checking"},
+			{ID: "acct-empty", Name: "Empty"},
+			{ID: "acct-2", Name: "Savings"},
+		},
+		transactions: map[string][]ledger.Transaction{
+			"acct-1": {{ID: "txn-1", AccountID: "acct-1", Amount: 100, Description: "Deposit", CreatedAt: routerClock.T}},
+		},
+	}
+	router, err := NewRouter(&store, routerClock)
+	if err != nil {
+		t.Fatalf("NewRouter() error = %v, want nil", err)
+	}
+
+	for _, tt := range []struct {
+		name       string
+		path       string
+		wantAnchor string
+		prior      string
+	}{
+		{
+			name:       "populated selected account has one download anchor",
+			path:       "/?account=acct-1",
+			wantAnchor: `<a class="download" href="/api/accounts/acct-1/transactions?format=csv">Download CSV</a>`,
+		},
+		{
+			name:       "empty selected account has one download anchor",
+			path:       "/?account=acct-empty",
+			wantAnchor: `<a class="download" href="/api/accounts/acct-empty/transactions?format=csv">Download CSV</a>`,
+		},
+		{
+			name:       "different selected account changes the download target",
+			path:       "/?account=acct-2",
+			wantAnchor: `<a class="download" href="/api/accounts/acct-2/transactions?format=csv">Download CSV</a>`,
+			prior:      `/api/accounts/acct-1/transactions?format=csv`,
+		},
+		{
+			name: "unknown account has no fallback download control",
+			path: "/?account=acct-nope",
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, tt.path, nil))
+			body := rec.Body.String()
+
+			if tt.wantAnchor == "" {
+				if strings.Contains(body, "Download CSV") {
+					t.Errorf("invalid account page contains download control: %s", body)
+				}
+				return
+			}
+			if got := strings.Count(body, tt.wantAnchor); got != 1 {
+				t.Errorf("download anchor count = %d, want 1; body = %s", got, body)
+			}
+			if tt.prior != "" && strings.Contains(body, tt.prior) {
+				t.Errorf("download target retained prior account %q; body = %s", tt.prior, body)
+			}
+		})
+	}
+}
+
 func TestRouterServesAccountsWithDerivedBalances(t *testing.T) {
 	store := routerTestStore{
 		accounts: []ledger.Account{
