@@ -334,6 +334,58 @@ func TestRouterRendersAccountPageMarkup(t *testing.T) {
 	})
 }
 
+func TestRouterRendersDownloadCSVForSelectedAccount(t *testing.T) {
+	store := routerTestStore{
+		accounts: []ledger.Account{
+			{ID: "acct-1", Name: "Checking"},
+			{ID: "acct?2", Name: "Escaped"},
+			{ID: "acct-empty", Name: "Empty"},
+		},
+		transactions: map[string][]ledger.Transaction{
+			"acct-1": {{ID: "txn-0001", AccountID: "acct-1", Amount: 10000, Description: "Opening balance"}},
+			"acct?2": {{ID: "txn-0002", AccountID: "acct?2", Amount: 2500, Description: "Escaped account"}},
+		},
+	}
+	router, err := NewRouter(&store, routerClock)
+	if err != nil {
+		t.Fatalf("NewRouter() error = %v, want nil", err)
+	}
+
+	for _, tt := range []struct {
+		name     string
+		path     string
+		wantHref string
+	}{
+		{name: "populated account", path: "/?account=acct-1", wantHref: "/api/accounts/acct-1/transactions?format=csv"},
+		{name: "empty account", path: "/?account=acct-empty", wantHref: "/api/accounts/acct-empty/transactions?format=csv"},
+		{name: "different account uses escaped account path", path: "/?account=acct%3F2", wantHref: "/api/accounts/acct%3F2/transactions?format=csv"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, tt.path, nil))
+			body := rec.Body.String()
+			wantLink := `<a class="download" href="` + tt.wantHref + `">Download CSV</a>`
+
+			if got := strings.Count(body, "Download CSV"); got != 1 {
+				t.Errorf("Download CSV label count = %d, want 1; body = %s", got, body)
+			}
+			if !strings.Contains(body, wantLink) {
+				t.Errorf("page does not contain selected-account download link %q; body = %s", wantLink, body)
+			}
+		})
+	}
+
+	t.Run("invalid requested account has no fallback download", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/?account=acct-nope", nil))
+		body := rec.Body.String()
+
+		if strings.Contains(body, "Download CSV") || strings.Contains(body, `class="download"`) {
+			t.Errorf("invalid account page must not render a fallback download control; body = %s", body)
+		}
+	})
+}
+
 func TestRouterRendersPageErrorStates(t *testing.T) {
 	store := routerTestStore{
 		accounts: []ledger.Account{

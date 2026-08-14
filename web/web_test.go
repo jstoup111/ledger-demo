@@ -24,12 +24,16 @@ func TestEmbeddedStylesheetActivatesBalanceErrorAndTableRules(t *testing.T) {
 		"balance":                     regexp.MustCompile(`(?s)\.balance\s*\{[^}]*font-size:\s*4rem;[^}]*font-weight:\s*700;[^}]*\}`),
 		"account navigation spacing":  regexp.MustCompile(`(?s)nav\s+a\s*\{[^}]*margin-right:\s*[^;]+;[^}]*\}`),
 		"selected account body scale": regexp.MustCompile(`(?s)\.selected-account\s*\{[^}]*font-size:\s*1rem;[^}]*font-weight:\s*(?:400|normal);[^}]*\}`),
+		"projector-legible download":  regexp.MustCompile(`(?s)\.download\s*\{[^}]*display:\s*inline-block;[^}]*font-size:\s*1rem;[^}]*padding:\s*[^;]+;[^}]*\}`),
 		"error":                       regexp.MustCompile(`(?s)\.error\s*\{[^}]*background:\s*#fdecea;[^}]*border-left:\s*6px\s+solid\s+#b3261e;[^}]*\}`),
 		"table":                       regexp.MustCompile(`(?s)table\s*\{[^}]*border-collapse:\s*collapse;[^}]*\}`),
 	} {
 		if !rule.MatchString(activeCSS) {
 			t.Errorf("active stylesheet is missing the required %s rule", name)
 		}
+	}
+	if got := len(regexp.MustCompile(`(?m)^\s*\.download\s*\{`).FindAllString(activeCSS, -1)); got != 1 {
+		t.Errorf("active .download rule count = %d, want 1", got)
 	}
 
 	for _, forbidden := range []string{"@media", "prefers-color-scheme", "@keyframes", "@font-face"} {

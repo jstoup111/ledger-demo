@@ -47,6 +47,15 @@ nav a {
   padding: 1rem;
 }
 
+.download {
+  display: inline-block;
+  font-size: 1rem;
+  padding: 0.6rem 1rem;
+  background: #111111;
+  color: #ffffff;
+  text-decoration: none;
+}
+
 table {
   border-collapse: collapse;
   width: 100%;
