@@ -33,6 +33,7 @@
     {{end}}
 
     <section aria-label="Transactions">
+      {{if .DownloadURL}}<a class="download" href="{{.DownloadURL}}">Download CSV</a>{{end}}
       {{if .Transactions}}
       <table>
         <thead><tr><th>Description</th><th>Amount</th><th>Recorded</th></tr></thead>

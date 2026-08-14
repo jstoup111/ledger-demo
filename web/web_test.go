@@ -39,6 +39,35 @@ func TestEmbeddedStylesheetActivatesBalanceErrorAndTableRules(t *testing.T) {
 	}
 }
 
+func TestEmbeddedStylesheetActivatesMinimalDownloadButtonRule(t *testing.T) {
+	stylesheet, err := FS.ReadFile("style.css")
+	if err != nil {
+		t.Fatalf("read embedded style.css: %v", err)
+	}
+
+	activeCSS := regexp.MustCompile(`/\*[\s\S]*?\*/`).ReplaceAllString(string(stylesheet), "")
+	downloadRules := regexp.MustCompile(`(?s)\.download\s*\{[^}]*\}`).FindAllString(activeCSS, -1)
+	requiredDeclarations := []*regexp.Regexp{
+		regexp.MustCompile(`(?m)(?:^|[;{])\s*display:\s*inline-block\s*;`),
+		regexp.MustCompile(`(?m)(?:^|[;{])\s*padding:\s*[^;]*[1-9][0-9]*(?:\.[0-9]+)?(?:px|rem|em)[^;]*;`),
+		regexp.MustCompile(`(?mi)(?:^|[;{])\s*background(?:-color)?:\s*#111111\s*;`),
+		regexp.MustCompile(`(?mi)(?:^|[;{])\s*color:\s*#ffffff\s*;`),
+		regexp.MustCompile(`(?m)(?:^|[;{])\s*text-decoration:\s*none\s*;`),
+	}
+
+	valid := len(downloadRules) == 1
+	if valid {
+		for _, declaration := range requiredDeclarations {
+			valid = valid && declaration.MatchString(downloadRules[0])
+		}
+	}
+	forbidden := regexp.MustCompile(`(?i)@media|@keyframes|\banimation(?:-[a-z-]+)?\s*:|\btransition(?:-[a-z-]+)?\s*:`)
+	valid = valid && !forbidden.MatchString(activeCSS)
+	if !valid {
+		t.Error("active stylesheet must contain exactly one minimal, projector-legible .download button rule and no breakpoint or animation constructs")
+	}
+}
+
 func TestOfflineAssetsAndDependencies(t *testing.T) {
 	stylesheet, err := FS.ReadFile("style.css")
 	if err != nil {

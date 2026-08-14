@@ -334,6 +334,89 @@ func TestRouterRendersAccountPageMarkup(t *testing.T) {
 	})
 }
 
+func TestRouterRendersCSVDownloadLinkOnlyForValidSelectedAccount(t *testing.T) {
+	store := routerTestStore{
+		accounts: []ledger.Account{
+			{ID: "acct-1", Name: "Checking"},
+			{ID: "acct-2", Name: "Savings"},
+			{ID: "acct-3", Name: "Spending"},
+			{ID: "acct?2", Name: "Escaped"},
+		},
+		transactions: map[string][]ledger.Transaction{
+			"acct-3": {{ID: "txn-0001", AccountID: "acct-3", Amount: 10000, Description: "Opening balance"}},
+		},
+	}
+	router, err := NewRouter(&store, routerClock)
+	if err != nil {
+		t.Fatalf("NewRouter() error = %v, want nil", err)
+	}
+
+	for _, tt := range []struct {
+		name        string
+		path        string
+		wantHref    string
+		wantAnchors int
+	}{
+		{
+			name:        "valid empty selected account has one explicit CSV link",
+			path:        "/?account=acct-1",
+			wantHref:    "/api/accounts/acct-1/transactions?format=csv",
+			wantAnchors: 1,
+		},
+		{
+			name:        "changing the selected account changes the CSV link",
+			path:        "/?account=acct-2",
+			wantHref:    "/api/accounts/acct-2/transactions?format=csv",
+			wantAnchors: 1,
+		},
+		{
+			name:        "valid populated selected account has one explicit CSV link",
+			path:        "/?account=acct-3",
+			wantHref:    "/api/accounts/acct-3/transactions?format=csv",
+			wantAnchors: 1,
+		},
+		{
+			name:        "selected account path segment is escaped before the CSV query",
+			path:        "/?account=acct%3F2",
+			wantHref:    "/api/accounts/acct%3F2/transactions?format=csv",
+			wantAnchors: 1,
+		},
+		{
+			name:        "invalid requested account has no CSV link",
+			path:        "/?account=acct-nope",
+			wantAnchors: 0,
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, tt.path, nil))
+			body := rec.Body.String()
+
+			got := struct {
+				status      int
+				anchors     int
+				expectedURL int
+			}{
+				status:      rec.Code,
+				anchors:     strings.Count(body, `<a class="download"`),
+				expectedURL: strings.Count(body, `href="`+tt.wantHref+`"`),
+			}
+			wantURLCount := 0
+			if tt.wantHref != "" {
+				wantURLCount = 1
+			}
+			want := struct {
+				status      int
+				anchors     int
+				expectedURL int
+			}{status: http.StatusOK, anchors: tt.wantAnchors, expectedURL: wantURLCount}
+			if !reflect.DeepEqual(got, want) {
+				t.Errorf("CSV download link result = %+v, want %+v; body = %s", got, want, body)
+			}
+		})
+	}
+}
+
 func TestRouterRendersPageErrorStates(t *testing.T) {
 	store := routerTestStore{
 		accounts: []ledger.Account{
