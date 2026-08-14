@@ -6,6 +6,98 @@
 **Tier:** S (`.docs/complexity/csv-export-single-account.md`)
 **Conflict check:** Skipped — Tier S (see the complexity record)
 
+## Browser-download amendment — 2026-08-13
+
+**Amendment Status:** Approved
+
+> **Amended 2026-08-13 by operator:** This amendment is the authoritative implementation plan. It
+> supersedes every original task step below that creates a CLI command, writes CSV to standard output,
+> changes command dispatch, or leaves the page unchanged. Original text remains as decision history.
+> Existing task identifiers 1–3 are retained where possible; Task 4 is added for the visible UI
+> wiring.
+
+### Current Summary
+
+Four short tasks: render the existing transaction values as CSV, expose that representation through
+the existing transaction-listing handler, prove the ordinary JSON and five-endpoint contracts remain
+intact, then wire and style one selected-account download control. No model, schema, domain,
+dependency, command, or route registration changes.
+
+### Current Technical Approach
+
+- A small renderer in `internal/httpapi` accepts an already-read transaction slice and returns a
+  complete CSV byte slice. It writes the header `id,amount_cents,description,created_at`, formats
+  amounts as base-10 signed integers and times as UTC RFC 3339, and uses standard CSV escaping.
+- The existing `GET /api/accounts/{id}/transactions` handler keeps its ordinary JSON behavior. An
+  explicit `format=csv` query selects the CSV representation after the store read succeeds. The
+  successful CSV response uses `text/csv; charset=utf-8` and
+  `Content-Disposition: attachment; filename="transactions.csv"`.
+- Rendering into memory before response headers are set prevents a renderer failure from producing a
+  partial document. Missing-account and unexpected-store errors continue through the handler's
+  existing error paths before any CSV header or body is written.
+- The page data carries a URL for the valid selected account only. The template renders that URL as a
+  normal link labelled `Download CSV`, styled to read as a button; no JavaScript or form submission is
+  involved.
+- Task order is renderer → handler → compatibility evidence → UI wiring. Each production integration
+  point is tested in the task that owns it; there is no terminal catch-all task.
+
+### Verify-Claims Ledger — plan amendment
+
+#### Claims
+
+- [verified] Query strings do not add a `ServeMux` route registration, so an explicit representation
+  query preserves the tested five-registration count.
+- [verified] The existing handler completes the transaction-store read and handles missing/unexpected
+  errors before serializing a successful response.
+- [verified] The page data already knows the selected account's identifier before template execution,
+  including for a valid empty account; the invalid-account branch executes the template without a
+  selected account.
+- [verified] The existing JSON response already supplies the approved identifier, integer-cent amount,
+  description, UTC RFC 3339 time, and newest-first ordering semantics.
+
+#### Assumptions
+
+- [load-bearing, 95%] `format=csv` is the narrowest explicit way to select the browser download while
+  preserving the ordinary JSON response and route count.
+  - Impact if wrong: handler selection logic, the control URL, and request-level tests change.
+  - Confirm by: operator approval of this plan amendment.
+  - **Status: APPROVED by operator 2026-08-13**
+- [load-bearing, 85%] A static safe attachment name, `transactions.csv`, is sufficient for the demo.
+  - Impact if wrong: response-header behavior and its tests gain account-specific filename rules.
+  - Confirm by: operator approval of this plan amendment.
+  - **Status: APPROVED by operator 2026-08-13**
+- [load-bearing, 95%] An ordinary link styled as a button is the correct control because the action is
+  a read-only download and must remain keyboard-operable without JavaScript.
+  - Impact if wrong: template markup, styling, and UI tests change.
+  - Confirm by: operator approval of this plan amendment.
+  - **Status: APPROVED by operator 2026-08-13**
+
+#### Verdict
+
+CLEAR — the operator approved the plan amendment and all three technical assumptions on 2026-08-13.
+
+### Current Task Dependency Graph
+
+```text
+Task 1 (CSV renderer)
+  └─▶ Task 2 (existing handler representation + failure paths)
+        └─▶ Task 3 (verify-only JSON + route-count compatibility)
+              └─▶ Task 4 (selected-account UI control)
+```
+
+### Current Coverage Mapping
+
+| Requirement / story | Task(s) |
+|---|---|
+| FR-1 / Story 1 — visible selected-account control | 4 |
+| FR-2 / Story 1 — browser download, read-only | 2, 4 |
+| FR-3 / Story 1 — four CSV fields and integer cents | 1, 2 |
+| FR-4 / Story 1 — values and newest-first order agree | 1, 2 |
+| FR-5 / Story 1 — valid empty account | 1, 2, 4 |
+| FR-6 / Story 2 — missing account is not a CSV | 2 |
+| FR-7 / Story 1 — deterministic bytes | 1, 2 |
+| FR-8 / Story 2 — ordinary behavior and route count unchanged | 2, 3, 4 |
+
 ## Summary
 
 **Three tasks.** Add a CSV renderer over the existing store interface, wire it into the existing
@@ -97,6 +189,29 @@ turns up" step, and it adds no implementation.
 
 ### Task 1: Render one account's transactions as a CSV document
 
+> **Amended 2026-08-13 by operator:** The renderer now belongs to the HTTP package and accepts the
+> handler's already-read transaction slice. These amended steps replace the original command-package
+> steps retained below.
+
+**Story:** Story 1 — document shape, values, special-character safety, empty account, determinism
+**Type:** happy-path
+**Files:** internal/httpapi/csv.go; internal/httpapi/csv_test.go
+
+**Amended Steps:**
+1. Write failing table-driven tests for a CSV renderer over `[]ledger.Transaction`: assert the exact
+   header `id,amount_cents,description,created_at`; positive and negative integer-cent strings; UTC
+   RFC 3339 times; newest-first input order preserved; comma, quote, and line-break descriptions
+   round-trip as four fields; empty input produces only the header; and two renders are byte-identical.
+2. Verify the scoped renderer tests fail because the renderer does not exist (RED).
+3. Add `internal/httpapi/csv.go` with a renderer that builds the full document in a `bytes.Buffer`
+   using standard CSV encoding, copies fields without domain decisions, flushes, checks the writer
+   error, and returns a copied byte slice. Use `strconv.FormatInt` for amount and
+   `CreatedAt.UTC().Format(time.RFC3339)` for recorded time; add no clock or float.
+4. Verify the scoped renderer tests pass (GREEN).
+5. Commit with message: "feat: render account transactions as CSV" and trailer `Task: 1`.
+
+**Dependencies:** none
+
 **Story:** Story 1 — the header row, one row per transaction, integer cents, matching recorded times;
 Story 2 — the unknown-account failure writes zero bytes
 **Type:** happy-path
@@ -135,6 +250,34 @@ and is closed by Task 2 in the same batch.
 ---
 
 ### Task 2: Dispatch `export <account-id>` to standard output
+
+> **Amended 2026-08-13 by operator:** Task 2 now adds an explicit CSV representation to the existing
+> transaction-listing handler. It does not alter command dispatch. These amended steps replace the
+> original CLI steps retained below.
+
+**Story:** Stories 1 and 2 — downloadable response, ordinary JSON preservation, empty/missing account,
+unexpected-store failure, read-only integrity
+**Type:** happy-path + negative-path
+**Files:** internal/httpapi/router.go; internal/httpapi/router_test.go
+
+**Amended Steps:**
+1. Write failing request-level tests for `GET /api/accounts/{id}/transactions?format=csv`: populated
+   success has `text/csv; charset=utf-8`, attachment name `transactions.csv`, and the renderer's exact
+   body; empty-account success has the header only; missing account remains not found without CSV
+   headers or a misleading header-only body; unexpected store failure remains an undisclosed internal
+   error with no partial CSV; two unchanged requests are byte-identical and do not mutate the store.
+   In the same table, assert the identical URL without the explicit CSV selection retains its existing
+   JSON content type and exact body.
+2. Verify the scoped handler tests fail because explicit CSV selection still returns JSON (RED).
+3. Amend `handleAccountTransactions`: keep the store read and existing error handling first; when the
+   query value is exactly `csv`, render the full byte slice, handle any renderer error as an
+   undisclosed internal failure, then set the CSV and attachment headers and write the bytes. Leave
+   every other query value on the current JSON branch unchanged.
+4. Verify the scoped handler tests pass (GREEN), including the existing transaction-listing tests and
+   store call/mutation assertions.
+5. Commit with message: "feat: download transactions as CSV" and trailer `Task: 2`.
+
+**Dependencies:** Task 1
 
 **Story:** Story 2 — the unknown-subcommand message names all three commands; argument-count and
 database-path failures write nothing; the existing subcommands are unchanged
@@ -182,6 +325,24 @@ the built binary as `ledger-server export <account-id>`. This closes Task 1's de
 
 ### Task 3: Prove the export agrees with the JSON listing and repeats byte for byte
 
+> **Amended 2026-08-13 by operator:** The original real-binary CLI acceptance work is superseded.
+> Task 3 is now a narrow verify-only compatibility gate for the existing JSON response and the
+> five-registration contract after Task 2; it is intentionally not a terminal feature-wide check.
+
+**Story:** Story 2 — ordinary JSON and five-endpoint compatibility
+**Type:** negative-path + verification
+**Files:** none
+**Verify-only:** yes
+
+**Amended Steps:**
+1. Run the scoped existing tests that pin the ordinary transaction-listing JSON response and exactly
+   five route registrations after Task 2.
+2. Confirm both remain green without modifying production or test code.
+3. Record an empty completion commit with `Task: 3` and an `Evidence: skipped` trailer naming the
+   already-green compatibility tests.
+
+**Dependencies:** Task 2
+
 **Story:** Story 1 — the export and the programmatic listing agree element for element, and repeated
 exports are byte-identical; Story 2 — the unknown account exits non-zero with empty standard output
 **Type:** negative-path
@@ -222,7 +383,36 @@ exports are byte-identical; Story 2 — the unknown account exits non-zero with 
 
 ---
 
+### Task 4: Render the selected-account download control
+
+**Story:** Stories 1 and 2 — visible populated/empty-account control, account switching, invalid
+selection exclusion, existing page/posting preservation
+**Type:** happy-path + negative-path
+**Files:** internal/httpapi/router.go; internal/httpapi/router_test.go; web/index.html.tmpl; web/style.css; web/web_test.go
+
+**Steps:**
+1. Write failing page tests asserting: a valid populated account renders exactly one `Download CSV`
+   link whose target selects that account's CSV; a valid empty account renders the same control; a
+   different selected account changes the target; an invalid requested account renders no fallback
+   download control. Add a stylesheet test requiring one active, projector-legible rule for the
+   control while preserving the existing no-breakpoint/no-animation constraints.
+2. Verify the scoped page and stylesheet tests fail because no download URL or control exists (RED).
+3. Add a download URL field to the valid selected-account page data, constructed with the same path
+   escaping convention as the existing form action and the explicit CSV query. Render it as an anchor
+   labelled `Download CSV` near the selected account's transactions and add a minimal `.download`
+   style that visually matches a button. Do not add JavaScript, a form, or another route.
+4. Verify the scoped page, stylesheet, existing page-selection, posting, redirect, and route-count
+   tests pass (GREEN).
+5. Commit with message: "feat: add CSV download control" and trailer `Task: 4`.
+
+**Dependencies:** Task 3
+
+---
+
 ## Task Dependency Graph
+
+> **Amended 2026-08-13 by operator:** The original three-task graph below is superseded by the current
+> four-task graph near the top of this plan.
 
 ```
 Task 1 (CSV renderer over the store interface)
