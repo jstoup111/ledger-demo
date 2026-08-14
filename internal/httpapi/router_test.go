@@ -349,8 +349,57 @@ func TestRouterRendersOneCSVDownloadLinkForSelectedPopulatedAccount(t *testing.T
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/?account=acct-1", nil))
 
-	if got, want := strings.Count(rec.Body.String(), `<a href="/api/accounts/acct-1/transactions?format=csv">Download CSV</a>`), 1; got != want {
+	if got, want := strings.Count(rec.Body.String(), `<a class="download" href="/api/accounts/acct-1/transactions?format=csv">Download CSV</a>`), 1; got != want {
 		t.Errorf("Download CSV link count = %d, want %d; body = %s", got, want, rec.Body.String())
+	}
+}
+
+func TestRouterRendersCSVDownloadControlForSelectionVariants(t *testing.T) {
+	store := routerTestStore{
+		accounts: []ledger.Account{
+			{ID: "acct-1", Name: "Checking"},
+			{ID: "acct-empty", Name: "Empty"},
+		},
+	}
+	router, err := NewRouter(&store, routerClock)
+	if err != nil {
+		t.Fatalf("NewRouter() error = %v, want nil", err)
+	}
+
+	for _, tt := range []struct {
+		name                 string
+		path                 string
+		wantDownloadHref     string
+		wantDownloadControls int
+	}{
+		{
+			name:                 "valid empty selected account renders its download control",
+			path:                 "/?account=acct-empty",
+			wantDownloadHref:     "/api/accounts/acct-empty/transactions?format=csv",
+			wantDownloadControls: 1,
+		},
+		{
+			name:                 "different valid selected account changes the download target",
+			path:                 "/?account=acct-1",
+			wantDownloadHref:     "/api/accounts/acct-1/transactions?format=csv",
+			wantDownloadControls: 1,
+		},
+		{
+			name:                 "invalid requested account renders no fallback download control",
+			path:                 "/?account=acct-missing",
+			wantDownloadControls: 0,
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, tt.path, nil))
+			body := rec.Body.String()
+
+			hasExpectedDownload := tt.wantDownloadHref == "" || strings.Count(body, `<a class="download" href="`+tt.wantDownloadHref+`">Download CSV</a>`) == 1
+			if got, want := hasExpectedDownload && strings.Count(body, `class="download"`) == tt.wantDownloadControls, true; got != want {
+				t.Errorf("download control = %t, want %t; body = %s", got, want, body)
+			}
+		})
 	}
 }
 
