@@ -7,13 +7,16 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"html"
 	"log"
 	"math"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"reflect"
+	"regexp"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -330,6 +333,82 @@ func TestRouterRendersAccountPageMarkup(t *testing.T) {
 		}
 		if !strings.Contains(strings.ToLower(body), "no transactions") {
 			t.Errorf("empty account does not show an explicit transaction empty state; body = %s", body)
+		}
+	})
+}
+
+func TestRouterRendersSelectedAccountCSVDownload(t *testing.T) {
+	createdAt := time.Date(2026, time.August, 8, 14, 30, 0, 0, time.UTC)
+	const escapedAccountID = "acct/quarter 1"
+	store := routerTestStore{
+		accounts: []ledger.Account{
+			{ID: "acct-1", Name: "Checking"},
+			{ID: escapedAccountID, Name: "Quarterly savings"},
+		},
+		transactions: map[string][]ledger.Transaction{
+			"acct-1": {{ID: "txn-0001", AccountID: "acct-1", Amount: 10000, Description: "Opening balance", CreatedAt: createdAt}},
+		},
+	}
+	router, err := NewRouter(&store, routerClock)
+	if err != nil {
+		t.Fatalf("NewRouter() error = %v, want nil", err)
+	}
+
+	downloadAnchor := regexp.MustCompile(`(?s)<a\s+([^>]*)>\s*Download CSV\s*</a>`)
+	href := regexp.MustCompile(`(?:^|\s)href="([^"]+)"`)
+	downloadClass := regexp.MustCompile(`(?:^|\s)class="([^"]*)"`)
+
+	assertDownload := func(t *testing.T, body, wantTarget string) {
+		t.Helper()
+		matches := downloadAnchor.FindAllStringSubmatch(body, -1)
+		if len(matches) != 1 {
+			t.Fatalf("Download CSV anchors = %d, want exactly 1; body = %s", len(matches), body)
+		}
+		attributes := matches[0][1]
+		hrefMatch := href.FindStringSubmatch(attributes)
+		classMatch := downloadClass.FindStringSubmatch(attributes)
+		hasDownloadClass := len(classMatch) == 2 && slices.Contains(strings.Fields(classMatch[1]), "download")
+		if len(hrefMatch) != 2 || html.UnescapeString(hrefMatch[1]) != wantTarget || !hasDownloadClass {
+			t.Errorf("Download CSV anchor attributes = %q, want class download and href %q", attributes, wantTarget)
+		}
+	}
+
+	t.Run("populated selected account downloads its CSV", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/?account=acct-1", nil))
+
+		assertDownload(t, rec.Body.String(), "/api/accounts/acct-1/transactions?format=csv")
+	})
+
+	t.Run("empty selected account downloads its CSV with an escaped path ID", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		path := "/?account=" + url.QueryEscape(escapedAccountID)
+		router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
+
+		assertDownload(t, rec.Body.String(), "/api/accounts/"+url.PathEscape(escapedAccountID)+"/transactions?format=csv")
+	})
+
+	t.Run("changing the selected account replaces the prior download target", func(t *testing.T) {
+		first := httptest.NewRecorder()
+		router.ServeHTTP(first, httptest.NewRequest(http.MethodGet, "/?account=acct-1", nil))
+		assertDownload(t, first.Body.String(), "/api/accounts/acct-1/transactions?format=csv")
+
+		second := httptest.NewRecorder()
+		path := "/?account=" + url.QueryEscape(escapedAccountID)
+		router.ServeHTTP(second, httptest.NewRequest(http.MethodGet, path, nil))
+		body := second.Body.String()
+		assertDownload(t, body, "/api/accounts/"+url.PathEscape(escapedAccountID)+"/transactions?format=csv")
+		if strings.Contains(body, "/api/accounts/acct-1/transactions?format=csv") {
+			t.Errorf("new selection leaked the prior account download target; body = %s", body)
+		}
+	})
+
+	t.Run("invalid requested account has no fallback download", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/?account=acct-nope", nil))
+
+		if matches := downloadAnchor.FindAllString(rec.Body.String(), -1); len(matches) != 0 {
+			t.Errorf("invalid account Download CSV anchors = %d, want 0; body = %s", len(matches), rec.Body.String())
 		}
 	})
 }

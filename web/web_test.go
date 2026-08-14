@@ -39,6 +39,37 @@ func TestEmbeddedStylesheetActivatesBalanceErrorAndTableRules(t *testing.T) {
 	}
 }
 
+func TestEmbeddedStylesheetActivatesProjectorLegibleDownloadButtonRule(t *testing.T) {
+	stylesheet, err := FS.ReadFile("style.css")
+	if err != nil {
+		t.Fatalf("read embedded style.css: %v", err)
+	}
+
+	activeCSS := regexp.MustCompile(`/\*[\s\S]*?\*/`).ReplaceAllString(string(stylesheet), "")
+	downloadRules := regexp.MustCompile(`(?s)\.download\s*\{([^}]*)\}`).FindAllStringSubmatch(activeCSS, -1)
+	buttonLike := false
+	for _, rule := range downloadRules {
+		declarations := rule[1]
+		if regexp.MustCompile(`display:\s*inline-block\s*;`).MatchString(declarations) &&
+			regexp.MustCompile(`padding:\s*[^;]+;`).MatchString(declarations) &&
+			regexp.MustCompile(`background(?:-color)?:\s*[^;]+;`).MatchString(declarations) &&
+			regexp.MustCompile(`(?:^|;)\s*color:\s*[^;]+;`).MatchString(declarations) &&
+			regexp.MustCompile(`font-weight:\s*(?:700|bold)\s*;`).MatchString(declarations) {
+			buttonLike = true
+			break
+		}
+	}
+	if !buttonLike {
+		t.Errorf("active stylesheet has %d .download rules, want one with inline-block display, padding, background, foreground color, and bold text", len(downloadRules))
+	}
+
+	for _, forbidden := range []string{"@media", "prefers-color-scheme", "@keyframes", "@font-face"} {
+		if strings.Contains(string(stylesheet), forbidden) {
+			t.Errorf("stylesheet must not contain %q", forbidden)
+		}
+	}
+}
+
 func TestOfflineAssetsAndDependencies(t *testing.T) {
 	stylesheet, err := FS.ReadFile("style.css")
 	if err != nil {
