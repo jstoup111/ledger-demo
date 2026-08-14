@@ -284,6 +284,18 @@ func handleAccountTransactions(store ledger.Store) http.HandlerFunc {
 			return
 		}
 
+		if r.URL.Query().Get("format") == "csv" {
+			body := renderTransactionsCSV(transactions)
+			if body == nil {
+				http.Error(w, "render transactions failed", http.StatusInternalServerError)
+				return
+			}
+			w.Header().Set("Content-Type", "text/csv; charset=utf-8")
+			w.Header().Set("Content-Disposition", `attachment; filename="transactions.csv"`)
+			_, _ = w.Write(body)
+			return
+		}
+
 		response := make([]transactionResponse, 0, len(transactions))
 		for _, transaction := range transactions {
 			response = append(response, transactionResponse{

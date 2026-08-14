@@ -2247,6 +2247,148 @@ func TestRouterServesAccountTransactions(t *testing.T) {
 	})
 }
 
+func TestRouterSelectsCSVForAccountTransactions(t *testing.T) {
+	createdEarlier := time.Date(2026, time.August, 8, 14, 30, 0, 0, time.UTC)
+	transactions := []ledger.Transaction{
+		{ID: "txn-0002", AccountID: "acct-1", Amount: -4250, Description: "Groceries", CreatedAt: createdEarlier.Add(time.Minute)},
+		{ID: "txn-0001", AccountID: "acct-1", Amount: 128350, Description: "Deposit", CreatedAt: createdEarlier},
+	}
+	const csvHeader = "id,amount_cents,description,created_at\n"
+	const jsonBody = "[{\"id\":\"txn-0002\",\"account_id\":\"acct-1\",\"amount_cents\":-4250,\"description\":\"Groceries\",\"created_at\":\"2026-08-08T14:31:00Z\"},{\"id\":\"txn-0001\",\"account_id\":\"acct-1\",\"amount_cents\":128350,\"description\":\"Deposit\",\"created_at\":\"2026-08-08T14:30:00Z\"}]\n"
+
+	tests := []struct {
+		name                string
+		path                string
+		newStore            func() ledger.Store
+		wantStatus          int
+		wantContentType     string
+		wantDisposition     string
+		wantBody            string
+		wantNoCSVHeaders    bool
+		wantNoHeaderBody    bool
+		wantRepeatUnchanged bool
+	}{
+		{
+			name: "populated account returns the renderer's exact CSV as an attachment",
+			path: "/api/accounts/acct-1/transactions?format=csv",
+			newStore: func() ledger.Store {
+				return &routerTestStore{
+					accounts:     []ledger.Account{{ID: "acct-1", Name: "Checking"}},
+					transactions: map[string][]ledger.Transaction{"acct-1": append([]ledger.Transaction(nil), transactions...)},
+				}
+			},
+			wantStatus:          http.StatusOK,
+			wantContentType:     "text/csv; charset=utf-8",
+			wantDisposition:     `attachment; filename="transactions.csv"`,
+			wantBody:            string(renderTransactionsCSV(transactions)),
+			wantRepeatUnchanged: true,
+		},
+		{
+			name: "empty account returns a header-only CSV attachment",
+			path: "/api/accounts/acct-empty/transactions?format=csv",
+			newStore: func() ledger.Store {
+				return &routerTestStore{accounts: []ledger.Account{{ID: "acct-empty", Name: "Empty"}}}
+			},
+			wantStatus:      http.StatusOK,
+			wantContentType: "text/csv; charset=utf-8",
+			wantDisposition: `attachment; filename="transactions.csv"`,
+			wantBody:        csvHeader,
+		},
+		{
+			name: "missing account keeps the JSON 404 without CSV metadata or a header-only body",
+			path: "/api/accounts/acct-nope/transactions?format=csv",
+			newStore: func() ledger.Store {
+				return &routerTestStore{accounts: []ledger.Account{{ID: "acct-1", Name: "Checking"}}}
+			},
+			wantStatus:       http.StatusNotFound,
+			wantContentType:  "application/json; charset=utf-8",
+			wantNoCSVHeaders: true,
+			wantNoHeaderBody: true,
+		},
+		{
+			name: "unexpected store failure stays undisclosed with no partial CSV",
+			path: "/api/accounts/acct-1/transactions?format=csv",
+			newStore: func() ledger.Store {
+				return failingRouterStore{
+					Store:           &routerTestStore{accounts: []ledger.Account{{ID: "acct-1", Name: "Checking"}}},
+					transactionsErr: errors.New("private database failure"),
+				}
+			},
+			wantStatus:       http.StatusInternalServerError,
+			wantContentType:  "text/plain; charset=utf-8",
+			wantNoCSVHeaders: true,
+			wantNoHeaderBody: true,
+		},
+		{
+			name: "the same URL without CSV selection retains its exact JSON representation",
+			path: "/api/accounts/acct-1/transactions",
+			newStore: func() ledger.Store {
+				return &routerTestStore{
+					accounts:     []ledger.Account{{ID: "acct-1", Name: "Checking"}},
+					transactions: map[string][]ledger.Transaction{"acct-1": append([]ledger.Transaction(nil), transactions...)},
+				}
+			},
+			wantStatus:      http.StatusOK,
+			wantContentType: "application/json; charset=utf-8",
+			wantBody:        jsonBody,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			store := tt.newStore()
+			router, err := NewRouter(store, routerClock)
+			if err != nil {
+				t.Fatalf("NewRouter() error = %v, want nil", err)
+			}
+
+			var before []ledger.Transaction
+			if concrete, ok := store.(*routerTestStore); ok {
+				before = append([]ledger.Transaction(nil), concrete.transactions["acct-1"]...)
+			}
+			request := func() *httptest.ResponseRecorder {
+				recorder := httptest.NewRecorder()
+				router.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, tt.path, nil))
+				return recorder
+			}
+			recorder := request()
+
+			if got := recorder.Code; got != tt.wantStatus {
+				t.Errorf("status = %d, want %d", got, tt.wantStatus)
+			}
+			if got := recorder.Header().Get("Content-Type"); got != tt.wantContentType {
+				t.Errorf("Content-Type = %q, want %q", got, tt.wantContentType)
+			}
+			if got := recorder.Header().Get("Content-Disposition"); got != tt.wantDisposition {
+				t.Errorf("Content-Disposition = %q, want %q", got, tt.wantDisposition)
+			}
+			if tt.wantBody != "" && recorder.Body.String() != tt.wantBody {
+				t.Errorf("body = %q, want %q", recorder.Body.String(), tt.wantBody)
+			}
+			if tt.wantNoCSVHeaders && strings.HasPrefix(recorder.Header().Get("Content-Type"), "text/csv") {
+				t.Errorf("failure response has CSV Content-Type %q", recorder.Header().Get("Content-Type"))
+			}
+			if tt.wantNoHeaderBody && recorder.Body.String() == csvHeader {
+				t.Errorf("failure response has misleading header-only CSV body %q", recorder.Body.String())
+			}
+			if strings.Contains(recorder.Body.String(), "private database failure") {
+				t.Errorf("response disclosed the underlying store failure: %q", recorder.Body.String())
+			}
+
+			if tt.wantRepeatUnchanged {
+				repeat := request()
+				if !bytes.Equal(recorder.Body.Bytes(), repeat.Body.Bytes()) {
+					t.Errorf("unchanged requests differ: first %q, second %q", recorder.Body.Bytes(), repeat.Body.Bytes())
+				}
+				concrete := store.(*routerTestStore)
+				if !reflect.DeepEqual(concrete.transactions["acct-1"], before) {
+					t.Errorf("GET mutated store transactions: got %#v, want %#v", concrete.transactions["acct-1"], before)
+				}
+			}
+		})
+	}
+}
+
 func TestRouterLogsUnexpectedStoreErrorsWithoutDisclosingThem(t *testing.T) {
 	baseStore := &routerTestStore{
 		accounts: []ledger.Account{{ID: "acct-1", Name: "Checking"}},
