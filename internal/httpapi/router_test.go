@@ -2247,6 +2247,164 @@ func TestRouterServesAccountTransactions(t *testing.T) {
 	})
 }
 
+func TestRouterServesAccountTransactionsAsCSVOnlyForExactFormat(t *testing.T) {
+	createdAt := time.Date(2026, time.August, 13, 14, 5, 6, 0, time.UTC)
+	transaction := ledger.Transaction{
+		ID:          "txn-1",
+		AccountID:   "acct-1",
+		Amount:      125,
+		Description: "Coffee, beans",
+		CreatedAt:   createdAt,
+	}
+	const (
+		csvHeader = "id,amount_cents,description,created_at\n"
+		csvBody   = csvHeader + "txn-1,125,\"Coffee, beans\",2026-08-13T14:05:06Z\n"
+		jsonBody  = "[{\"id\":\"txn-1\",\"account_id\":\"acct-1\",\"amount_cents\":125,\"description\":\"Coffee, beans\",\"created_at\":\"2026-08-13T14:05:06Z\"}]\n"
+	)
+
+	tests := []struct {
+		name            string
+		path            string
+		accountID       string
+		transactions    []ledger.Transaction
+		transactionsErr error
+		requests        int
+		wantStatus      int
+		wantContentType string
+		wantDisposition string
+		wantBody        string
+	}{
+		{
+			name:            "populated account downloads the exact CSV representation",
+			path:            "/api/accounts/acct-1/transactions?format=csv",
+			accountID:       "acct-1",
+			transactions:    []ledger.Transaction{transaction},
+			requests:        1,
+			wantStatus:      http.StatusOK,
+			wantContentType: "text/csv; charset=utf-8",
+			wantDisposition: `attachment; filename="transactions.csv"`,
+			wantBody:        csvBody,
+		},
+		{
+			name:            "empty account downloads only the CSV header",
+			path:            "/api/accounts/acct-empty/transactions?format=csv",
+			accountID:       "acct-empty",
+			requests:        1,
+			wantStatus:      http.StatusOK,
+			wantContentType: "text/csv; charset=utf-8",
+			wantDisposition: `attachment; filename="transactions.csv"`,
+			wantBody:        csvHeader,
+		},
+		{
+			name:            "missing account remains a JSON 404 without a CSV download",
+			path:            "/api/accounts/acct-nope/transactions?format=csv",
+			accountID:       "acct-1",
+			requests:        1,
+			wantStatus:      http.StatusNotFound,
+			wantContentType: "application/json; charset=utf-8",
+			wantBody:        "{\"error\":{\"code\":\"account_not_found\",\"message\":\"Account not found.\"}}",
+		},
+		{
+			name:            "transaction store failure remains an undisclosed 500 without partial CSV",
+			path:            "/api/accounts/acct-1/transactions?format=csv",
+			accountID:       "acct-1",
+			transactionsErr: errors.New("database transaction query unavailable"),
+			requests:        1,
+			wantStatus:      http.StatusInternalServerError,
+			wantContentType: "text/plain; charset=utf-8",
+			wantBody:        "list transactions failed\n",
+		},
+		{
+			name:            "unchanged CSV requests are byte-identical and read-only",
+			path:            "/api/accounts/acct-1/transactions?format=csv",
+			accountID:       "acct-1",
+			transactions:    []ledger.Transaction{transaction},
+			requests:        2,
+			wantStatus:      http.StatusOK,
+			wantContentType: "text/csv; charset=utf-8",
+			wantDisposition: `attachment; filename="transactions.csv"`,
+			wantBody:        csvBody,
+		},
+		{
+			name:            "request without format retains the exact JSON response",
+			path:            "/api/accounts/acct-1/transactions",
+			accountID:       "acct-1",
+			transactions:    []ledger.Transaction{transaction},
+			requests:        1,
+			wantStatus:      http.StatusOK,
+			wantContentType: "application/json; charset=utf-8",
+			wantBody:        jsonBody,
+		},
+		{
+			name:            "near-miss format value retains the exact JSON response",
+			path:            "/api/accounts/acct-1/transactions?format=CSV",
+			accountID:       "acct-1",
+			transactions:    []ledger.Transaction{transaction},
+			requests:        1,
+			wantStatus:      http.StatusOK,
+			wantContentType: "application/json; charset=utf-8",
+			wantBody:        jsonBody,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			store := &routerTestStore{
+				accounts:     []ledger.Account{{ID: tt.accountID, Name: "Test account"}},
+				transactions: map[string][]ledger.Transaction{tt.accountID: tt.transactions},
+			}
+			before := append([]ledger.Transaction(nil), store.transactions[tt.accountID]...)
+			var routerStore ledger.Store = store
+			if tt.transactionsErr != nil {
+				routerStore = failingRouterStore{Store: store, transactionsErr: tt.transactionsErr}
+			}
+			router, err := NewRouter(routerStore, routerClock)
+			if err != nil {
+				t.Fatalf("NewRouter() error = %v, want nil", err)
+			}
+
+			type response struct {
+				status      int
+				contentType string
+				disposition string
+				body        string
+			}
+			responses := make([]response, 0, tt.requests)
+			for range tt.requests {
+				recorder := httptest.NewRecorder()
+				router.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, tt.path, nil))
+				responses = append(responses, response{
+					status:      recorder.Code,
+					contentType: recorder.Header().Get("Content-Type"),
+					disposition: recorder.Header().Get("Content-Disposition"),
+					body:        recorder.Body.String(),
+				})
+			}
+			got := struct {
+				responses      []response
+				storeUnchanged bool
+			}{responses: responses, storeUnchanged: reflect.DeepEqual(store.transactions[tt.accountID], before)}
+			wantResponses := make([]response, tt.requests)
+			for index := range wantResponses {
+				wantResponses[index] = response{
+					status:      tt.wantStatus,
+					contentType: tt.wantContentType,
+					disposition: tt.wantDisposition,
+					body:        tt.wantBody,
+				}
+			}
+			want := struct {
+				responses      []response
+				storeUnchanged bool
+			}{responses: wantResponses, storeUnchanged: true}
+
+			if !reflect.DeepEqual(got, want) {
+				t.Errorf("response result = %#v, want %#v", got, want)
+			}
+		})
+	}
+}
+
 func TestRouterLogsUnexpectedStoreErrorsWithoutDisclosingThem(t *testing.T) {
 	baseStore := &routerTestStore{
 		accounts: []ledger.Account{{ID: "acct-1", Name: "Checking"}},
