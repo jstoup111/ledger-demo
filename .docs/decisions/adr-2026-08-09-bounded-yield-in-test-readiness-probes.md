@@ -1,7 +1,7 @@
 # ADR: The no-sleep rule forbids sleeping to mask races, not yielding while polling
 
 **Date:** 2026-08-09
-**Status:** Accepted
+**Status:** APPROVED
 **Deciders:** james.stoup
 
 ## Context

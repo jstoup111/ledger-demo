@@ -1,6 +1,6 @@
 # API Response Contract — ledger-demo
 
-**Status:** Accepted
+**Status:** APPROVED
 **Date:** 2026-08-08
 
 The contract stories assert against. Deliberately tiny: three JSON endpoints, one error shape, six
