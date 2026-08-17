@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"go/ast"
 	"go/parser"
 	"go/token"
@@ -332,6 +333,55 @@ func TestRouterRendersAccountPageMarkup(t *testing.T) {
 			t.Errorf("empty account does not show an explicit transaction empty state; body = %s", body)
 		}
 	})
+}
+
+func TestRouterRendersCSVDownloadControlOnlyForSelectedValidAccount(t *testing.T) {
+	firstAccountID := "acct/one"
+	secondAccountID := "acct two"
+	store := routerTestStore{
+		accounts: []ledger.Account{
+			{ID: firstAccountID, Name: "Checking"},
+			{ID: secondAccountID, Name: "Savings"},
+		},
+		transactions: map[string][]ledger.Transaction{
+			firstAccountID:  {{ID: "txn-0001", AccountID: firstAccountID, Amount: 100, Description: "Deposit", CreatedAt: routerClock.Now()}},
+			secondAccountID: {},
+		},
+	}
+	router, err := NewRouter(&store, routerClock)
+	if err != nil {
+		t.Fatalf("NewRouter() error = %v, want nil", err)
+	}
+
+	render := func(accountID string) string {
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/?account="+url.QueryEscape(accountID), nil))
+		return rec.Body.String()
+	}
+	wantLink := func(accountID string) string {
+		return `<a class="download" href="/api/accounts/` + url.PathEscape(accountID) + `/transactions?format=csv">Download CSV</a>`
+	}
+
+	populatedBody := render(firstAccountID)
+	emptyBody := render(secondAccountID)
+	invalidBody := render("missing-account")
+	var failures []string
+	if got := strings.Count(populatedBody, wantLink(firstAccountID)); got != 1 {
+		failures = append(failures, "populated selected account link count = "+fmt.Sprint(got))
+	}
+	if got := strings.Count(emptyBody, wantLink(secondAccountID)); got != 1 {
+		failures = append(failures, "empty selected account link count = "+fmt.Sprint(got))
+	}
+	if strings.Contains(emptyBody, wantLink(firstAccountID)) {
+		failures = append(failures, "new selected account page leaked prior account link")
+	}
+	if got := strings.Count(invalidBody, "Download CSV"); got != 0 {
+		failures = append(failures, "invalid requested account download control count = "+fmt.Sprint(got))
+	}
+
+	if len(failures) != 0 {
+		t.Errorf("CSV download control states failed: %s", strings.Join(failures, "; "))
+	}
 }
 
 func TestRouterRendersPageErrorStates(t *testing.T) {

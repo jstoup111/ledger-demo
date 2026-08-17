@@ -65,3 +65,17 @@ func TestOfflineAssetsAndDependencies(t *testing.T) {
 		t.Errorf("direct non-standard-library requirement = %q, want %q", got, want)
 	}
 }
+
+func TestEmbeddedStylesheetHasOneProjectorLegibleDownloadControlRule(t *testing.T) {
+	stylesheet, err := FS.ReadFile("style.css")
+	if err != nil {
+		t.Fatalf("read embedded style.css: %v", err)
+	}
+
+	activeCSS := regexp.MustCompile(`/\*[\s\S]*?\*/`).ReplaceAllString(string(stylesheet), "")
+	downloadRule := regexp.MustCompile(`(?s)\.download\s*\{[^}]*display:\s*inline-block;[^}]*padding:\s*[^;]+;[^}]*background:\s*[^;]+;[^}]*color:\s*[^;]+;[^}]*font-weight:\s*700;[^}]*text-decoration:\s*none;[^}]*\}`)
+
+	if got := len(downloadRule.FindAllString(activeCSS, -1)); got != 1 {
+		t.Errorf("active projector-legible .download rule count = %d, want 1", got)
+	}
+}
