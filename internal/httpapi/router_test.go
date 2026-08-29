@@ -1,4 +1,4 @@
-// Covers: task:2, S2.1, S3.1, S3.2, S3.3, S4.2, S4.5
+// Covers: task:3, S1.1, S1.2, S1.3, S1.4, task:2, S2.1, S3.1, S3.2, S3.3, S4.2, S4.5
 package httpapi
 
 import (
@@ -14,6 +14,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"reflect"
+	"regexp"
 	"runtime"
 	"strings"
 	"testing"
@@ -331,6 +332,59 @@ func TestRouterRendersAccountPageMarkup(t *testing.T) {
 		}
 		if !strings.Contains(strings.ToLower(body), "no transactions") {
 			t.Errorf("empty account does not show an explicit transaction empty state; body = %s", body)
+		}
+	})
+}
+
+func TestRouterRendersSelectedAccountCSVDownloadLink(t *testing.T) {
+	store := routerTestStore{
+		accounts: []ledger.Account{
+			{ID: "acct-populated", Name: "Checking"},
+			{ID: "acct-empty", Name: "Savings"},
+		},
+		transactions: map[string][]ledger.Transaction{
+			"acct-populated": {{ID: "txn-0001", AccountID: "acct-populated", Amount: 10000, Description: "Opening balance"}},
+		},
+	}
+	router, err := NewRouter(&store, routerClock)
+	if err != nil {
+		t.Fatalf("NewRouter() error = %v, want nil", err)
+	}
+
+	downloadLink := regexp.MustCompile(`<a\b[^>]*\bhref="([^"]*)"[^>]*>\s*Download CSV\s*</a>`)
+	targets := make(map[string]string)
+	for _, tt := range []struct {
+		name    string
+		account string
+	}{
+		{name: "populated selected account", account: "acct-populated"},
+		{name: "empty selected account", account: "acct-empty"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/?account="+tt.account, nil))
+			body := rec.Body.String()
+
+			links := downloadLink.FindAllStringSubmatch(body, -1)
+			if got, want := len(links), 1; got != want {
+				t.Fatalf("Download CSV links = %d, want %d; body = %s", got, want, body)
+			}
+			if got, want := links[0][1], "/api/accounts/"+tt.account+"/transactions?format=csv"; got != want {
+				t.Errorf("Download CSV target = %q, want %q", got, want)
+			}
+			targets[tt.account] = links[0][1]
+		})
+	}
+
+	if targets["acct-populated"] != "" && targets["acct-empty"] != "" && targets["acct-populated"] == targets["acct-empty"] {
+		t.Errorf("switching accounts kept CSV target %q, want selected-account-specific targets", targets["acct-populated"])
+	}
+
+	t.Run("missing account has no download link", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/?account=acct-missing", nil))
+		if links := downloadLink.FindAllStringSubmatch(rec.Body.String(), -1); len(links) != 0 {
+			t.Errorf("missing account Download CSV links = %d, want 0; body = %s", len(links), rec.Body.String())
 		}
 	})
 }

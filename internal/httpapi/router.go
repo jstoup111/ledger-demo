@@ -67,6 +67,7 @@ type pageData struct {
 	AccountNotFound    bool
 	RequestedAccount   string
 	FormAction         string
+	CSVDownloadURL     string
 	Transactions       []pageTransaction
 }
 
@@ -150,6 +151,7 @@ func handlePage(page *template.Template, store ledger.Store) http.HandlerFunc {
 		data.SelectedAccount = selected.Name
 		data.HasSelectedAccount = true
 		data.FormAction = "/api/accounts/" + url.PathEscape(selected.ID) + "/transactions"
+		data.CSVDownloadURL = data.FormAction + "?format=csv"
 		data.Transactions = make([]pageTransaction, 0, len(transactions))
 		for _, transaction := range transactions {
 			data.Transactions = append(data.Transactions, pageTransaction{
