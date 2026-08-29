@@ -13,6 +13,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"reflect"
+	"regexp"
 	"runtime"
 	"strings"
 	"testing"
@@ -2398,11 +2399,18 @@ func TestRouterPageBindsCSVDownloadToSelectedAccount(t *testing.T) {
 			rec := httptest.NewRecorder()
 			router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, tt.path, nil))
 			body := rec.Body.String()
-			wantLink := `<a href="` + tt.wantTarget + `">Download CSV</a>`
-			if got := strings.Count(body, wantLink); got != 1 {
+			downloadLinks := regexp.MustCompile(`<a\b[^>]*>\s*Download CSV\s*</a>`).FindAllString(body, -1)
+			wantTarget := regexp.MustCompile(`\bhref="` + regexp.QuoteMeta(tt.wantTarget) + `"`)
+			matchingTarget := 0
+			for _, link := range downloadLinks {
+				if wantTarget.MatchString(link) {
+					matchingTarget++
+				}
+			}
+			if got := matchingTarget; got != 1 {
 				t.Errorf("Download CSV link count = %d, want 1 for %q; body = %s", got, tt.wantTarget, body)
 			}
-			if got := strings.Count(body, "Download CSV"); got != 1 {
+			if got := len(downloadLinks); got != 1 {
 				t.Errorf("Download CSV label count = %d, want 1; body = %s", got, body)
 			}
 		})
