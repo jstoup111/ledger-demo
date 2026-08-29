@@ -32,6 +32,8 @@
     </form>
     {{end}}
 
+    {{if .CSVDownloadURL}}<a href="{{.CSVDownloadURL}}">Download CSV</a>{{end}}
+
     <section aria-label="Transactions">
       {{if .Transactions}}
       <table>

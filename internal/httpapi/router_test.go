@@ -22,7 +22,7 @@ import (
 	"github.com/jstoup111/ledger-demo/internal/ledger"
 )
 
-// Covers: task:2 S2/S3/S4.
+// Covers: task:3 S1/S2/S3.
 var routerClock = clock.FixedClock{T: time.Date(2026, time.August, 8, 14, 30, 0, 0, time.UTC)}
 
 type routerTestStore struct {
@@ -2349,6 +2349,93 @@ func TestRouterServesCSVAccountTransactions(t *testing.T) {
 			})
 		}
 	})
+}
+
+func TestRouterPageBindsCSVDownloadToSelectedAccount(t *testing.T) {
+	store := routerTestStore{
+		accounts: []ledger.Account{
+			{ID: "acct-1", Name: "Checking"},
+			{ID: "acct-empty", Name: "Empty"},
+			{ID: "acct?2", Name: "Escaped"},
+		},
+		transactions: map[string][]ledger.Transaction{
+			"acct-1": {{ID: "txn-1", AccountID: "acct-1", Amount: 100, Description: "Opening balance"}},
+		},
+	}
+	router, err := NewRouter(&store, routerClock)
+	if err != nil {
+		t.Fatalf("NewRouter() error = %v, want nil", err)
+	}
+	countBefore, err := store.CountTransactions()
+	if err != nil {
+		t.Fatalf("CountTransactions() before page requests error = %v", err)
+	}
+
+	tests := []struct {
+		name       string
+		path       string
+		wantTarget string
+	}{
+		{
+			name:       "populated selected account",
+			path:       "/?account=acct-1",
+			wantTarget: "/api/accounts/acct-1/transactions?format=csv",
+		},
+		{
+			name:       "empty selected account",
+			path:       "/?account=acct-empty",
+			wantTarget: "/api/accounts/acct-empty/transactions?format=csv",
+		},
+		{
+			name:       "path escaped selected account",
+			path:       "/?account=acct%3F2",
+			wantTarget: "/api/accounts/acct%3F2/transactions?format=csv",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, tt.path, nil))
+			body := rec.Body.String()
+			wantLink := `<a href="` + tt.wantTarget + `">Download CSV</a>`
+			if got := strings.Count(body, wantLink); got != 1 {
+				t.Errorf("Download CSV link count = %d, want 1 for %q; body = %s", got, tt.wantTarget, body)
+			}
+			if got := strings.Count(body, "Download CSV"); got != 1 {
+				t.Errorf("Download CSV label count = %d, want 1; body = %s", got, body)
+			}
+		})
+	}
+
+	t.Run("switching valid accounts changes the download target", func(t *testing.T) {
+		first := httptest.NewRecorder()
+		router.ServeHTTP(first, httptest.NewRequest(http.MethodGet, "/?account=acct-1", nil))
+		second := httptest.NewRecorder()
+		router.ServeHTTP(second, httptest.NewRequest(http.MethodGet, "/?account=acct-empty", nil))
+		if first.Body.String() == second.Body.String() {
+			t.Fatal("selected-account pages are identical, want distinct CSV targets")
+		}
+		if !strings.Contains(first.Body.String(), "/api/accounts/acct-1/transactions?format=csv") || !strings.Contains(second.Body.String(), "/api/accounts/acct-empty/transactions?format=csv") {
+			t.Errorf("selected-account CSV targets did not switch: first = %s, second = %s", first.Body.String(), second.Body.String())
+		}
+	})
+
+	t.Run("missing account has no download link", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/?account=acct-nope", nil))
+		if body := rec.Body.String(); strings.Contains(body, "Download CSV") || strings.Contains(body, "format=csv") {
+			t.Errorf("missing-account page contains a CSV download control: %s", body)
+		}
+	})
+
+	countAfter, err := store.CountTransactions()
+	if err != nil {
+		t.Fatalf("CountTransactions() after page requests error = %v", err)
+	}
+	if got, want := countAfter, countBefore; got != want {
+		t.Errorf("transactions after page requests = %d, want %d", got, want)
+	}
 }
 
 func TestRouterCSVTransactionFailureKeepsUndisclosedError(t *testing.T) {
