@@ -14,6 +14,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"reflect"
+	"regexp"
 	"runtime"
 	"strings"
 	"testing"
@@ -348,13 +349,13 @@ func TestRouterRendersAccountPageMarkup(t *testing.T) {
 				rec := httptest.NewRecorder()
 				router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, tt.path, nil))
 				body := rec.Body.String()
-				link := `<a href="` + tt.href + `">Download CSV</a>`
+				link := regexp.MustCompile(`<a\b[^>]*\bhref="` + regexp.QuoteMeta(tt.href) + `"[^>]*>Download CSV</a>`)
 
 				if got, want := strings.Count(body, "Download CSV"), 1; got != want {
 					t.Errorf("Download CSV label count = %d, want %d; body = %s", got, want, body)
 				}
-				if !strings.Contains(body, link) {
-					t.Errorf("page does not contain native link %q; body = %s", link, body)
+				if !link.MatchString(body) {
+					t.Errorf("page does not contain a native link with href %q and label Download CSV; body = %s", tt.href, body)
 				}
 			})
 		}
