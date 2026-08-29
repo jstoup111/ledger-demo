@@ -47,16 +47,13 @@ ledger values are readable as rows and columns.
 
 - Given a populated valid account is selected, when the control is activated, then the response is a
   downloadable CSV containing one header row and exactly one row per selected-account transaction.
-- Given the document is parsed, when its rows are compared with the ordinary programmatic listing,
-  then transaction identifiers, signed integer-cent amounts, descriptions, recorded times, and
-  newest-first order agree element for element.
+- Given the document is parsed, when its rows are compared with the ordinary programmatic listing, then transaction identifiers, signed integer-cent amounts, descriptions, recorded times, and newest-first order agree element for element.
 - Given a description contains a comma, quotation mark, or line break, when the CSV is parsed, then
   the row still has exactly four fields and the description round-trips unchanged.
 
 #### Negative Paths
 
-- Given the presenter changes the selected account before downloading, when the document is parsed,
-  then it contains no row from the previously selected account.
+- Given the presenter changes the selected account before downloading, when the document is parsed, then it contains no row from the previously selected account.
 - Given positive and negative amounts are downloaded, when their fields are read, then they remain
   bare signed integer-cent values with no currency or floating-point formatting.
 - Given a download succeeds, when the ledger is inspected afterward, then no account or transaction
@@ -117,8 +114,7 @@ demo remains repeatable.
   documents are byte-identical.
 - Given no download is requested, when the ordinary transaction listing is read, then its status,
   content type, JSON body, and newest-first behavior are unchanged.
-- Given the existing account page and posting form are used, when accounts are selected and
-  transactions are posted, then their visible behavior and redirects are unchanged.
+- Given the existing account page and posting form are used, when accounts are selected and transactions are posted, then their visible behavior and redirects are unchanged.
 
 #### Negative Paths
 
@@ -144,6 +140,8 @@ demo remains repeatable.
 - [verified] FR-1 through FR-8 in the approved PRD are covered by Stories 1 through 4.
 - [verified] Each story contains concrete happy and negative paths plus independently verifiable Done
   When outputs.
+- [verified] All 19 acceptance criteria are machine-parseable as authoritative Given/Then bullets,
+  yielding S1.1 through S1.4, S2.1 through S2.6, S3.1 through S3.3, and S4.1 through S4.6.
 - [verified] The current architecture introduces no external call, queue, lock, authentication, or
   new mutable state requiring an additional architecture-induced negative path.
 
@@ -154,4 +152,3 @@ demo remains repeatable.
 ### Verdict
 
 CLEAR — no unconfirmed load-bearing assumptions remain.
-
