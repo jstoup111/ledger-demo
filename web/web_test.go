@@ -1,3 +1,4 @@
+// Covers: task:4
 package web
 
 import (
@@ -6,6 +7,34 @@ import (
 	"strings"
 	"testing"
 )
+
+func TestDownloadControlUsesProjectorLegibleLocalStyles(t *testing.T) {
+	stylesheet, err := FS.ReadFile("style.css")
+	if err != nil {
+		t.Fatalf("read embedded style.css: %v", err)
+	}
+
+	rawCSS := string(stylesheet)
+	activeCSS := regexp.MustCompile(`/\*[\s\S]*?\*/`).ReplaceAllString(rawCSS, "")
+	downloadControl := regexp.MustCompile(`(?s)\.download-control\s*\{[^}]*display:\s*inline-block;[^}]*background:\s*#111111;[^}]*color:\s*#ffffff;[^}]*border:\s*2px\s+solid\s+#dddddd;[^}]*padding:\s*[^;]+;[^}]*margin:\s*[^;]+;[^}]*\}`)
+	if !downloadControl.MatchString(activeCSS) {
+		t.Error("active stylesheet must give .download-control a local-palette inline-block control shape with padding and spacing")
+	}
+
+	for _, forbidden := range []string{"@media", "@keyframes", "animation:", "url(", "http://", "https://"} {
+		if strings.Contains(strings.ToLower(activeCSS), forbidden) {
+			t.Errorf("download control stylesheet must not contain %q", forbidden)
+		}
+	}
+
+	template, err := FS.ReadFile("index.html.tmpl")
+	if err != nil {
+		t.Fatalf("read embedded index.html.tmpl: %v", err)
+	}
+	if !strings.Contains(string(template), `<a class="download-control" href="{{.CSVDownloadURL}}">Download CSV</a>`) {
+		t.Error("Download CSV must remain a native link with the download-control class")
+	}
+}
 
 func TestEmbeddedStylesheetActivatesBalanceErrorAndTableRules(t *testing.T) {
 	stylesheet, err := FS.ReadFile("style.css")
