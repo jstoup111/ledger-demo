@@ -1,4 +1,4 @@
-// Covers: task:2
+// Covers: task:2, task:3
 package httpapi
 
 import (
@@ -333,6 +333,50 @@ func TestRouterRendersAccountPageMarkup(t *testing.T) {
 			t.Errorf("empty account does not show an explicit transaction empty state; body = %s", body)
 		}
 	})
+}
+
+func TestRouterRendersOneCSVDownloadForOnlyTheSelectedValidAccount(t *testing.T) {
+	store := routerTestStore{
+		accounts: []ledger.Account{
+			{ID: "acct-1", Name: "Checking"},
+			{ID: "acct-2", Name: "Savings"},
+			{ID: "acct-empty", Name: "Empty"},
+		},
+		transactions: map[string][]ledger.Transaction{
+			"acct-1": {{ID: "txn-0001", AccountID: "acct-1", Amount: 10000, Description: "Opening balance"}},
+		},
+	}
+	router, err := NewRouter(&store, routerClock)
+	if err != nil {
+		t.Fatalf("NewRouter() error = %v, want nil", err)
+	}
+
+	tests := []struct {
+		name     string
+		path     string
+		wantLink string
+	}{
+		{name: "populated default account", path: "/", wantLink: `<a href="/api/accounts/acct-1/transactions?format=csv">Download CSV</a>`},
+		{name: "switched account", path: "/?account=acct-2", wantLink: `<a href="/api/accounts/acct-2/transactions?format=csv">Download CSV</a>`},
+		{name: "empty account", path: "/?account=acct-empty", wantLink: `<a href="/api/accounts/acct-empty/transactions?format=csv">Download CSV</a>`},
+		{name: "missing account", path: "/?account=acct-nope"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			router.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, tt.path, nil))
+			body := recorder.Body.String()
+			got := strings.Count(body, ">Download CSV</a>") == 1 && strings.Contains(body, tt.wantLink)
+			if tt.wantLink == "" {
+				got = !strings.Contains(body, "Download CSV")
+			}
+
+			if !got {
+				t.Errorf("body download control does not match selected account; want link %q, body = %s", tt.wantLink, body)
+			}
+		})
+	}
 }
 
 func TestRouterRendersPageErrorStates(t *testing.T) {
