@@ -1,3 +1,4 @@
+// Covers: task:2
 package httpapi
 
 import (
@@ -2245,6 +2246,127 @@ func TestRouterServesAccountTransactions(t *testing.T) {
 			t.Errorf("error code = %q, want %q", got, want)
 		}
 	})
+}
+
+func TestRouterServesExplicitCSVWithoutChangingOtherTransactionResponses(t *testing.T) {
+	createdEarlier := time.Date(2026, time.August, 8, 14, 30, 0, 0, time.UTC)
+	createdLater := createdEarlier.Add(time.Minute)
+	baseStore := &routerTestStore{
+		accounts: []ledger.Account{
+			{ID: "acct-1", Name: "Checking"},
+			{ID: "acct-empty", Name: "Empty"},
+		},
+		transactions: map[string][]ledger.Transaction{
+			"acct-1": {
+				{ID: "txn-0002", AccountID: "acct-1", Amount: -4250, Description: "Groceries", CreatedAt: createdLater},
+				{ID: "txn-0001", AccountID: "acct-1", Amount: 128350, Description: "Deposit", CreatedAt: createdEarlier},
+			},
+		},
+	}
+	storeFailure := errors.New("database transaction query unavailable")
+
+	tests := []struct {
+		name  string
+		path  string
+		store ledger.Store
+		want  struct {
+			status      int
+			contentType string
+			disposition string
+			body        string
+		}
+	}{
+		{
+			name:  "populated account downloads rendered CSV",
+			path:  "/api/accounts/acct-1/transactions?format=csv",
+			store: baseStore,
+			want: struct {
+				status      int
+				contentType string
+				disposition string
+				body        string
+			}{http.StatusOK, "text/csv; charset=utf-8", `attachment; filename="transactions.csv"`, "id,amount_cents,description,created_at\ntxn-0002,-4250,Groceries,2026-08-08T14:31:00Z\ntxn-0001,128350,Deposit,2026-08-08T14:30:00Z\n"},
+		},
+		{
+			name:  "empty account downloads header only",
+			path:  "/api/accounts/acct-empty/transactions?format=csv",
+			store: baseStore,
+			want: struct {
+				status      int
+				contentType string
+				disposition string
+				body        string
+			}{http.StatusOK, "text/csv; charset=utf-8", `attachment; filename="transactions.csv"`, "id,amount_cents,description,created_at\n"},
+		},
+		{
+			name:  "missing account keeps JSON not-found response",
+			path:  "/api/accounts/acct-nope/transactions?format=csv",
+			store: baseStore,
+			want: struct {
+				status      int
+				contentType string
+				disposition string
+				body        string
+			}{http.StatusNotFound, "application/json; charset=utf-8", "", "{\"error\":{\"code\":\"account_not_found\",\"message\":\"Account not found.\"}}"},
+		},
+		{
+			name: "unexpected failure keeps plain internal response",
+			path: "/api/accounts/acct-1/transactions?format=csv",
+			store: failingRouterStore{
+				Store:           baseStore,
+				transactionsErr: storeFailure,
+			},
+			want: struct {
+				status      int
+				contentType string
+				disposition string
+				body        string
+			}{http.StatusInternalServerError, "text/plain; charset=utf-8", "", "list transactions failed\n"},
+		},
+		{
+			name:  "absent format keeps exact JSON response",
+			path:  "/api/accounts/acct-empty/transactions",
+			store: baseStore,
+			want: struct {
+				status      int
+				contentType string
+				disposition string
+				body        string
+			}{http.StatusOK, "application/json; charset=utf-8", "", "[]\n"},
+		},
+		{
+			name:  "non-exact format keeps exact JSON response",
+			path:  "/api/accounts/acct-empty/transactions?format=CSV",
+			store: baseStore,
+			want: struct {
+				status      int
+				contentType string
+				disposition string
+				body        string
+			}{http.StatusOK, "application/json; charset=utf-8", "", "[]\n"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			router, err := NewRouter(tt.store, routerClock)
+			if err != nil {
+				t.Fatalf("NewRouter() error = %v, want nil", err)
+			}
+			recorder := httptest.NewRecorder()
+			router.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, tt.path, nil))
+			got := struct {
+				status      int
+				contentType string
+				disposition string
+				body        string
+			}{recorder.Code, recorder.Header().Get("Content-Type"), recorder.Header().Get("Content-Disposition"), recorder.Body.String()}
+
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("response = %#v, want %#v", got, tt.want)
+			}
+		})
+	}
 }
 
 func TestRouterLogsUnexpectedStoreErrorsWithoutDisclosingThem(t *testing.T) {
