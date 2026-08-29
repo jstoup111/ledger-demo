@@ -14,6 +14,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"reflect"
+	"regexp"
 	"runtime"
 	"strings"
 	"testing"
@@ -354,11 +355,11 @@ func TestRouterRendersOneCSVDownloadForOnlyTheSelectedValidAccount(t *testing.T)
 	tests := []struct {
 		name     string
 		path     string
-		wantLink string
+		wantHref string
 	}{
-		{name: "populated default account", path: "/", wantLink: `<a href="/api/accounts/acct-1/transactions?format=csv">Download CSV</a>`},
-		{name: "switched account", path: "/?account=acct-2", wantLink: `<a href="/api/accounts/acct-2/transactions?format=csv">Download CSV</a>`},
-		{name: "empty account", path: "/?account=acct-empty", wantLink: `<a href="/api/accounts/acct-empty/transactions?format=csv">Download CSV</a>`},
+		{name: "populated default account", path: "/", wantHref: "/api/accounts/acct-1/transactions?format=csv"},
+		{name: "switched account", path: "/?account=acct-2", wantHref: "/api/accounts/acct-2/transactions?format=csv"},
+		{name: "empty account", path: "/?account=acct-empty", wantHref: "/api/accounts/acct-empty/transactions?format=csv"},
 		{name: "missing account", path: "/?account=acct-nope"},
 	}
 
@@ -367,13 +368,21 @@ func TestRouterRendersOneCSVDownloadForOnlyTheSelectedValidAccount(t *testing.T)
 			recorder := httptest.NewRecorder()
 			router.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, tt.path, nil))
 			body := recorder.Body.String()
-			got := strings.Count(body, ">Download CSV</a>") == 1 && strings.Contains(body, tt.wantLink)
-			if tt.wantLink == "" {
+			anchors := regexp.MustCompile(`<a\s+([^>]*)>Download CSV</a>`).FindAllStringSubmatch(body, -1)
+			matchingAnchors := 0
+			for _, anchor := range anchors {
+				href := regexp.MustCompile(`(?:^|\s)href="` + regexp.QuoteMeta(tt.wantHref) + `"(?:\s|$)`)
+				if href.MatchString(anchor[1]) {
+					matchingAnchors++
+				}
+			}
+			got := strings.Count(body, ">Download CSV</a>") == 1 && matchingAnchors == 1
+			if tt.wantHref == "" {
 				got = !strings.Contains(body, "Download CSV")
 			}
 
 			if !got {
-				t.Errorf("body download control does not match selected account; want link %q, body = %s", tt.wantLink, body)
+				t.Errorf("body download control does not match selected account; want href %q, body = %s", tt.wantHref, body)
 			}
 		})
 	}
