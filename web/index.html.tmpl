@@ -20,7 +20,7 @@
     <p class="requested-account">Requested account: <code>{{.RequestedAccount}}</code></p>
     {{else if .HasSelectedAccount}}
     <p class="balance">{{.Balance}} <span class="selected-account">Selected account: {{.SelectedAccount}}</span></p>
-    <a href="{{.CSVDownloadURL}}">Download CSV</a>
+    <a class="download-control" href="{{.CSVDownloadURL}}">Download CSV</a>
 
     {{if .FormAction}}
     {{if .ErrorMessage}}

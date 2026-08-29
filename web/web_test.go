@@ -39,6 +39,29 @@ func TestEmbeddedStylesheetActivatesBalanceErrorAndTableRules(t *testing.T) {
 	}
 }
 
+// Covers: task:4
+func TestDownloadControlUsesProjectorLegibleLocalStyles(t *testing.T) {
+	stylesheet, err := FS.ReadFile("style.css")
+	if err != nil {
+		t.Fatalf("read embedded style.css: %v", err)
+	}
+
+	activeCSS := regexp.MustCompile(`/\*[\s\S]*?\*/`).ReplaceAllString(string(stylesheet), "")
+	downloadControl := regexp.MustCompile(`(?s)\.download-control\s*\{[^}]*display:\s*inline-block;[^}]*margin:\s*[^;]+;[^}]*padding:\s*[^;]+;[^}]*background:\s*#111111;[^}]*color:\s*#ffffff;[^}]*\}`)
+	if !downloadControl.MatchString(activeCSS) {
+		t.Error("active .download-control rule must provide inline-block shape, spacing, padding, and existing-palette contrast")
+	}
+
+	template, err := FS.ReadFile("index.html.tmpl")
+	if err != nil {
+		t.Fatalf("read embedded index.html.tmpl: %v", err)
+	}
+	link := regexp.MustCompile(`<a\b[^>]*\bclass="download-control"[^>]*>Download CSV</a>`)
+	if !link.Match(template) {
+		t.Error("download control must remain a native link labelled Download CSV")
+	}
+}
+
 func TestOfflineAssetsAndDependencies(t *testing.T) {
 	stylesheet, err := FS.ReadFile("style.css")
 	if err != nil {
