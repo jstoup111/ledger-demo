@@ -1,3 +1,4 @@
+// Covers: task:4, S1.1
 package web
 
 import (
@@ -6,6 +7,37 @@ import (
 	"strings"
 	"testing"
 )
+
+func TestEmbeddedStylesheetStylesDownloadControlAsProjectorLink(t *testing.T) {
+	stylesheet, err := FS.ReadFile("style.css")
+	if err != nil {
+		t.Fatalf("read embedded style.css: %v", err)
+	}
+
+	if !hasProjectorDownloadControl(string(stylesheet)) {
+		t.Error("active stylesheet is missing a compliant .download-control rule")
+	}
+}
+
+func hasProjectorDownloadControl(rawCSS string) bool {
+	activeCSS := regexp.MustCompile(`/\*[\s\S]*?\*/`).ReplaceAllString(rawCSS, "")
+	readableSpace := `(?:0?\.[1-9][0-9]*|[1-9][0-9]*)(?:px|rem|em)`
+	downloadControl := regexp.MustCompile(`(?s)\.download-control\s*\{[^}]*display:\s*inline-block;[^}]*padding:\s*` + readableSpace + `[^;]*;[^}]*margin:\s*` + readableSpace + `[^;]*;[^}]*background:\s*#111111;[^}]*color:\s*#ffffff;[^}]*\}`)
+	if !downloadControl.MatchString(activeCSS) {
+		return false
+	}
+	if regexp.MustCompile(`(?s)\.download-control\s*\{[^}]*\banimation\s*:`).MatchString(activeCSS) {
+		return false
+	}
+
+	for _, forbidden := range []string{"@media", "@keyframes", "@import", "@font-face", "url("} {
+		if strings.Contains(strings.ToLower(activeCSS), forbidden) {
+			return false
+		}
+	}
+
+	return true
+}
 
 func TestEmbeddedStylesheetActivatesBalanceErrorAndTableRules(t *testing.T) {
 	stylesheet, err := FS.ReadFile("style.css")
