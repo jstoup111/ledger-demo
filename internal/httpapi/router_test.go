@@ -22,6 +22,7 @@ import (
 	"github.com/jstoup111/ledger-demo/internal/ledger"
 )
 
+// Covers: task:2 S2/S3/S4.
 var routerClock = clock.FixedClock{T: time.Date(2026, time.August, 8, 14, 30, 0, 0, time.UTC)}
 
 type routerTestStore struct {
@@ -2245,6 +2246,139 @@ func TestRouterServesAccountTransactions(t *testing.T) {
 			t.Errorf("error code = %q, want %q", got, want)
 		}
 	})
+}
+
+func TestRouterServesCSVAccountTransactions(t *testing.T) {
+	createdAt := time.Date(2026, time.August, 8, 14, 30, 0, 0, time.UTC)
+	store := routerTestStore{
+		accounts: []ledger.Account{
+			{ID: "acct-1", Name: "Checking"},
+			{ID: "acct-empty", Name: "Empty"},
+		},
+		transactions: map[string][]ledger.Transaction{
+			"acct-1": {
+				{ID: "txn-0002", AccountID: "acct-1", Amount: -4250, Description: "Groceries", CreatedAt: createdAt.Add(time.Minute)},
+				{ID: "txn-0001", AccountID: "acct-1", Amount: 128350, Description: "Deposit", CreatedAt: createdAt},
+			},
+		},
+	}
+	router, err := NewRouter(&store, routerClock)
+	if err != nil {
+		t.Fatalf("NewRouter() error = %v, want nil", err)
+	}
+
+	t.Run("populated account downloads renderer output", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/accounts/acct-1/transactions?format=csv", nil))
+
+		if got, want := rec.Code, http.StatusOK; got != want {
+			t.Fatalf("status = %d, want %d; body = %s", got, want, rec.Body.String())
+		}
+		if got, want := rec.Header().Get("Content-Type"), "text/csv; charset=utf-8"; got != want {
+			t.Errorf("Content-Type = %q, want %q", got, want)
+		}
+		if got, want := rec.Header().Get("Content-Disposition"), `attachment; filename="transactions.csv"`; got != want {
+			t.Errorf("Content-Disposition = %q, want %q", got, want)
+		}
+		if got, want := rec.Body.Bytes(), renderTransactionsCSV(store.transactions["acct-1"]); !bytes.Equal(got, want) {
+			t.Errorf("body = %q, want renderer output %q", got, want)
+		}
+	})
+
+	t.Run("empty account downloads header only", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/accounts/acct-empty/transactions?format=csv", nil))
+
+		if got, want := rec.Code, http.StatusOK; got != want {
+			t.Fatalf("status = %d, want %d; body = %s", got, want, rec.Body.String())
+		}
+		if got, want := rec.Header().Get("Content-Type"), "text/csv; charset=utf-8"; got != want {
+			t.Errorf("Content-Type = %q, want %q", got, want)
+		}
+		if got, want := rec.Header().Get("Content-Disposition"), `attachment; filename="transactions.csv"`; got != want {
+			t.Errorf("Content-Disposition = %q, want %q", got, want)
+		}
+		if got, want := rec.Body.Bytes(), renderTransactionsCSV(nil); !bytes.Equal(got, want) {
+			t.Errorf("body = %q, want header-only renderer output %q", got, want)
+		}
+	})
+
+	t.Run("missing account keeps its JSON not-found response", func(t *testing.T) {
+		baseline := httptest.NewRecorder()
+		router.ServeHTTP(baseline, httptest.NewRequest(http.MethodGet, "/api/accounts/acct-nope/transactions", nil))
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/accounts/acct-nope/transactions?format=csv", nil))
+
+		if got, want := rec.Code, baseline.Code; got != want {
+			t.Errorf("status = %d, want current JSON status %d", got, want)
+		}
+		if got, want := rec.Header().Get("Content-Type"), baseline.Header().Get("Content-Type"); got != want {
+			t.Errorf("Content-Type = %q, want current JSON value %q", got, want)
+		}
+		if got := rec.Header().Get("Content-Disposition"); got != "" {
+			t.Errorf("Content-Disposition = %q, want no CSV attachment header", got)
+		}
+		if got, want := rec.Body.String(), baseline.Body.String(); got != want {
+			t.Errorf("body = %q, want current JSON body %q", got, want)
+		}
+	})
+
+	t.Run("missing and non-exact format values preserve JSON exactly", func(t *testing.T) {
+		baseline := httptest.NewRecorder()
+		router.ServeHTTP(baseline, httptest.NewRequest(http.MethodGet, "/api/accounts/acct-1/transactions", nil))
+		for _, format := range []string{"", "CSV", "json", "csv "} {
+			t.Run("format="+format, func(t *testing.T) {
+				rec := httptest.NewRecorder()
+				path := "/api/accounts/acct-1/transactions"
+				if format != "" {
+					path += "?format=" + url.QueryEscape(format)
+				}
+				router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
+				if got, want := rec.Code, baseline.Code; got != want {
+					t.Errorf("status = %d, want %d", got, want)
+				}
+				if got, want := rec.Header().Get("Content-Type"), baseline.Header().Get("Content-Type"); got != want {
+					t.Errorf("Content-Type = %q, want %q", got, want)
+				}
+				if got := rec.Header().Get("Content-Disposition"); got != "" {
+					t.Errorf("Content-Disposition = %q, want no CSV attachment header", got)
+				}
+				if got, want := rec.Body.String(), baseline.Body.String(); got != want {
+					t.Errorf("body = %q, want current JSON body %q", got, want)
+				}
+			})
+		}
+	})
+}
+
+func TestRouterCSVTransactionFailureKeepsUndisclosedError(t *testing.T) {
+	underlying := errors.New("database transaction query unavailable")
+	baseStore := &routerTestStore{accounts: []ledger.Account{{ID: "acct-1", Name: "Checking"}}}
+	router, err := NewRouter(failingRouterStore{Store: baseStore, transactionsErr: underlying}, routerClock)
+	if err != nil {
+		t.Fatalf("NewRouter() error = %v, want nil", err)
+	}
+
+	baseline := httptest.NewRecorder()
+	router.ServeHTTP(baseline, httptest.NewRequest(http.MethodGet, "/api/accounts/acct-1/transactions", nil))
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/accounts/acct-1/transactions?format=csv", nil))
+
+	if got, want := rec.Code, baseline.Code; got != want {
+		t.Errorf("status = %d, want current failure status %d", got, want)
+	}
+	if got, want := rec.Header().Get("Content-Type"), baseline.Header().Get("Content-Type"); got != want {
+		t.Errorf("Content-Type = %q, want current failure value %q", got, want)
+	}
+	if got := rec.Header().Get("Content-Disposition"); got != "" {
+		t.Errorf("Content-Disposition = %q, want no CSV attachment header", got)
+	}
+	if got, want := rec.Body.String(), baseline.Body.String(); got != want {
+		t.Errorf("body = %q, want current undisclosed failure body %q", got, want)
+	}
+	if body := rec.Body.String(); strings.Contains(body, underlying.Error()) || strings.Contains(body, "id,amount_cents") {
+		t.Errorf("body = %q, want no internal error or partial CSV", body)
+	}
 }
 
 func TestRouterLogsUnexpectedStoreErrorsWithoutDisclosingThem(t *testing.T) {
