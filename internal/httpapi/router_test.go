@@ -1,4 +1,4 @@
-// Covers: task:2
+// Covers: task:2, task:3
 package httpapi
 
 import (
@@ -333,6 +333,32 @@ func TestRouterRendersAccountPageMarkup(t *testing.T) {
 			t.Errorf("empty account does not show an explicit transaction empty state; body = %s", body)
 		}
 	})
+
+	t.Run("valid selected accounts each render one native CSV download link", func(t *testing.T) {
+		for _, tt := range []struct {
+			name string
+			path string
+			href string
+		}{
+			{name: "populated default account", path: "/", href: "/api/accounts/acct-1/transactions?format=csv"},
+			{name: "empty selected account", path: "/?account=acct-3", href: "/api/accounts/acct-3/transactions?format=csv"},
+			{name: "switched selected account", path: "/?account=acct-2", href: "/api/accounts/acct-2/transactions?format=csv"},
+		} {
+			t.Run(tt.name, func(t *testing.T) {
+				rec := httptest.NewRecorder()
+				router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, tt.path, nil))
+				body := rec.Body.String()
+				link := `<a href="` + tt.href + `">Download CSV</a>`
+
+				if got, want := strings.Count(body, "Download CSV"), 1; got != want {
+					t.Errorf("Download CSV label count = %d, want %d; body = %s", got, want, body)
+				}
+				if !strings.Contains(body, link) {
+					t.Errorf("page does not contain native link %q; body = %s", link, body)
+				}
+			})
+		}
+	})
 }
 
 func TestRouterRendersPageErrorStates(t *testing.T) {
@@ -434,6 +460,9 @@ func TestRouterRendersPageErrorStates(t *testing.T) {
 		}
 		if !strings.Contains(body, "Account not found.") || strings.Contains(body, `class="balance"`) || strings.Contains(body, "<form") || strings.Contains(body, `aria-label="Transactions"`) {
 			t.Errorf("unknown account page must show the selector and not-found message only; body = %s", body)
+		}
+		if strings.Contains(body, "Download CSV") || strings.Contains(body, "format=csv") {
+			t.Errorf("unknown account page must not render a CSV download link; body = %s", body)
 		}
 	})
 
