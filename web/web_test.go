@@ -1,3 +1,4 @@
+// Covers: task:4
 package web
 
 import (
@@ -36,6 +37,28 @@ func TestEmbeddedStylesheetActivatesBalanceErrorAndTableRules(t *testing.T) {
 		if strings.Contains(rawCSS, forbidden) {
 			t.Errorf("stylesheet must not contain %q", forbidden)
 		}
+	}
+}
+
+func TestDownloadCSVRemainsANativeProjectorLegibleOfflineControl(t *testing.T) {
+	stylesheet, err := FS.ReadFile("style.css")
+	if err != nil {
+		t.Fatalf("read embedded style.css: %v", err)
+	}
+	template, err := FS.ReadFile("index.html.tmpl")
+	if err != nil {
+		t.Fatalf("read embedded index.html.tmpl: %v", err)
+	}
+
+	rawCSS := string(stylesheet)
+	activeCSS := regexp.MustCompile(`/\*[\s\S]*?\*/`).ReplaceAllString(rawCSS, "")
+	controlRule := regexp.MustCompile(`(?s)\.download-control\s*\{[^}]*display:\s*inline-block;[^}]*margin[^:]*:\s*[^;]+;[^}]*padding:\s*[^;]+;[^}]*background:\s*#111111;[^}]*color:\s*#ffffff;[^}]*\}`)
+	nativeLink := regexp.MustCompile(`<a\s+class="download-control"\s+href="\{\{\.DownloadURL\}\}">Download CSV</a>`)
+	forbidden := regexp.MustCompile(`(?i)@media|@keyframes|animation\s*:|transition\s*:|url\s*\(|https?://|<script`)
+	got := controlRule.MatchString(activeCSS) && nativeLink.Match(template) && !forbidden.Match(stylesheet) && !forbidden.Match(template)
+
+	if !got {
+		t.Errorf("download control must be a native offline link with active inline-block spacing, padding, and existing high-contrast palette; template = %s; stylesheet = %s", template, stylesheet)
 	}
 }
 

@@ -41,6 +41,16 @@ nav a {
   font-weight: normal;
 }
 
+.download-control {
+  display: inline-block;
+  margin-bottom: 1rem;
+  padding: 0.5rem 1rem;
+  background: #111111;
+  color: #ffffff;
+  font-weight: 700;
+  text-decoration: none;
+}
+
 .error {
   background: #fdecea;
   border-left: 6px solid #b3261e;
