@@ -1,3 +1,4 @@
+// Covers: task:4
 package web
 
 import (
@@ -34,6 +35,49 @@ func TestEmbeddedStylesheetActivatesBalanceErrorAndTableRules(t *testing.T) {
 
 	for _, forbidden := range []string{"@media", "prefers-color-scheme", "@keyframes", "@font-face"} {
 		if strings.Contains(rawCSS, forbidden) {
+			t.Errorf("stylesheet must not contain %q", forbidden)
+		}
+	}
+}
+
+func TestEmbeddedStylesheetStylesDownloadControl(t *testing.T) {
+	stylesheet, err := FS.ReadFile("style.css")
+	if err != nil {
+		t.Fatalf("read embedded style.css: %v", err)
+	}
+
+	rawCSS := string(stylesheet)
+	activeCSS := regexp.MustCompile(`/\*[\s\S]*?\*/`).ReplaceAllString(rawCSS, "")
+	controlRule := regexp.MustCompile(`(?s)\.download-control\s*\{([^}]*)\}`).FindStringSubmatch(activeCSS)
+	if controlRule == nil {
+		t.Fatal("active stylesheet is missing the required download control rule")
+	}
+
+	declarations := controlRule[1]
+	for name, rule := range map[string]*regexp.Regexp{
+		"inline-block display": regexp.MustCompile(`(?i)display:\s*inline-block\s*;`),
+		"readable padding":     regexp.MustCompile(`(?i)padding:\s*(?:[1-9]\d*(?:\.\d+)?|0\.\d+)\s*(?:px|em|rem)(?:\s+(?:[1-9]\d*(?:\.\d+)?|0\.\d+)\s*(?:px|em|rem)){0,3}\s*;`),
+		"visible border":       regexp.MustCompile(`(?i)border(?:-[a-z]+)?:\s*[^;]+;`),
+	} {
+		if !rule.MatchString(declarations) {
+			t.Errorf("download control is missing %s", name)
+		}
+	}
+
+	colors := regexp.MustCompile(`(?i)(?:background|color|border(?:-[a-z]+)?):\s*(#[0-9a-f]{3,8})\b`).FindAllStringSubmatch(declarations, -1)
+	if len(colors) < 2 {
+		t.Error("download control must use existing page-palette background and foreground colors")
+	} else {
+		outsideControl := strings.Replace(activeCSS, controlRule[0], "", 1)
+		for _, color := range colors {
+			if !strings.Contains(strings.ToLower(outsideControl), strings.ToLower(color[1])) {
+				t.Errorf("download control color %q is not part of the existing page palette", color[1])
+			}
+		}
+	}
+
+	for _, forbidden := range []string{"@media", "@keyframes", "animation:", "url("} {
+		if strings.Contains(strings.ToLower(rawCSS), forbidden) {
 			t.Errorf("stylesheet must not contain %q", forbidden)
 		}
 	}
