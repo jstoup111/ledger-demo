@@ -13,6 +13,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"reflect"
+	"regexp"
 	"runtime"
 	"strings"
 	"testing"
@@ -358,12 +359,12 @@ func TestRouterRendersCSVDownloadLinkForSelectedAccount(t *testing.T) {
 		{
 			name:     "populated selected account has one native download link",
 			path:     "/?account=acct-populated",
-			wantLink: `<a href="/api/accounts/acct-populated/transactions?format=csv">Download CSV</a>`,
+			wantLink: "/api/accounts/acct-populated/transactions?format=csv",
 		},
 		{
 			name:     "empty selected account has one native download link",
 			path:     "/?account=acct-empty",
-			wantLink: `<a href="/api/accounts/acct-empty/transactions?format=csv">Download CSV</a>`,
+			wantLink: "/api/accounts/acct-empty/transactions?format=csv",
 		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
@@ -374,11 +375,16 @@ func TestRouterRendersCSVDownloadLinkForSelectedAccount(t *testing.T) {
 			if got := strings.Count(body, "Download CSV"); got != 1 {
 				t.Errorf("CSV download label count = %d, want 1; body = %s", got, body)
 			}
-			if got := strings.Count(body, `>Download CSV</a>`); got != 1 {
-				t.Errorf("native CSV download anchor count = %d, want 1; body = %s", got, body)
+			downloadLink := regexp.MustCompile(`<a\b([^>]*)>Download CSV</a>`)
+			exactHref := regexp.MustCompile(`(?:^|\s)href="` + regexp.QuoteMeta(tt.wantLink) + `"(?:\s|$)`)
+			matchingLinks := 0
+			for _, match := range downloadLink.FindAllStringSubmatch(body, -1) {
+				if exactHref.MatchString(match[1]) {
+					matchingLinks++
+				}
 			}
-			if got := strings.Count(body, tt.wantLink); got != 1 {
-				t.Errorf("CSV download link count = %d, want 1 for %q; body = %s", got, tt.wantLink, body)
+			if got := matchingLinks; got != 1 {
+				t.Errorf("native CSV download anchor count = %d, want 1 for href %q; body = %s", got, tt.wantLink, body)
 			}
 		})
 	}
