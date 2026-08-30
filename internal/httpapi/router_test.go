@@ -334,6 +334,65 @@ func TestRouterRendersAccountPageMarkup(t *testing.T) {
 	})
 }
 
+// Covers: task:3
+func TestRouterRendersCSVDownloadLinkForSelectedAccount(t *testing.T) {
+	store := routerTestStore{
+		accounts: []ledger.Account{
+			{ID: "acct-populated", Name: "Checking"},
+			{ID: "acct-empty", Name: "Savings"},
+		},
+		transactions: map[string][]ledger.Transaction{
+			"acct-populated": {{ID: "txn-0001", AccountID: "acct-populated", Amount: 10000, Description: "Opening balance"}},
+		},
+	}
+	router, err := NewRouter(&store, routerClock)
+	if err != nil {
+		t.Fatalf("NewRouter() error = %v, want nil", err)
+	}
+
+	for _, tt := range []struct {
+		name     string
+		path     string
+		wantLink string
+	}{
+		{
+			name:     "populated selected account has one native download link",
+			path:     "/?account=acct-populated",
+			wantLink: `<a href="/api/accounts/acct-populated/transactions?format=csv">Download CSV</a>`,
+		},
+		{
+			name:     "empty selected account has one native download link",
+			path:     "/?account=acct-empty",
+			wantLink: `<a href="/api/accounts/acct-empty/transactions?format=csv">Download CSV</a>`,
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, tt.path, nil))
+			body := rec.Body.String()
+
+			if got := strings.Count(body, "Download CSV"); got != 1 {
+				t.Errorf("CSV download label count = %d, want 1; body = %s", got, body)
+			}
+			if got := strings.Count(body, `>Download CSV</a>`); got != 1 {
+				t.Errorf("native CSV download anchor count = %d, want 1; body = %s", got, body)
+			}
+			if got := strings.Count(body, tt.wantLink); got != 1 {
+				t.Errorf("CSV download link count = %d, want 1 for %q; body = %s", got, tt.wantLink, body)
+			}
+		})
+	}
+
+	t.Run("missing selected account has no CSV download link", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/?account=acct-nope", nil))
+
+		if body := rec.Body.String(); strings.Contains(body, "Download CSV") {
+			t.Errorf("missing account page must not contain a CSV download link; body = %s", body)
+		}
+	})
+}
+
 func TestRouterRendersPageErrorStates(t *testing.T) {
 	store := routerTestStore{
 		accounts: []ledger.Account{
