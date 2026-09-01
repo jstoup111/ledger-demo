@@ -30,6 +30,7 @@
       <label>Description <input name="description" required></label>
       <button type="submit">Post transaction</button>
     </form>
+    {{if .DownloadURL}}<a href="{{.DownloadURL}}">Download CSV</a>{{end}}
     {{end}}
 
     <section aria-label="Transactions">

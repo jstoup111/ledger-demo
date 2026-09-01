@@ -1,4 +1,4 @@
-// Covers: task:2
+// Covers: task:3
 package httpapi
 
 import (
@@ -331,6 +331,62 @@ func TestRouterRendersAccountPageMarkup(t *testing.T) {
 		}
 		if !strings.Contains(strings.ToLower(body), "no transactions") {
 			t.Errorf("empty account does not show an explicit transaction empty state; body = %s", body)
+		}
+	})
+}
+
+func TestRouterBindsCSVDownloadToValidSelectedAccount(t *testing.T) {
+	store := routerTestStore{
+		accounts: []ledger.Account{
+			{ID: "acct-populated", Name: "Checking"},
+			{ID: "acct-empty", Name: "Savings"},
+		},
+		transactions: map[string][]ledger.Transaction{
+			"acct-populated": {{ID: "txn-0001", AccountID: "acct-populated", Amount: 10000, Description: "Opening balance", CreatedAt: routerClock.Now()}},
+		},
+	}
+	router, err := NewRouter(&store, routerClock)
+	if err != nil {
+		t.Fatalf("NewRouter() error = %v, want nil", err)
+	}
+
+	for _, tt := range []struct {
+		name string
+		path string
+		want string
+	}{
+		{
+			name: "populated selected account",
+			path: "/?account=acct-populated",
+			want: `<a href="/api/accounts/acct-populated/transactions?format=csv">Download CSV</a>`,
+		},
+		{
+			name: "empty selected account",
+			path: "/?account=acct-empty",
+			want: `<a href="/api/accounts/acct-empty/transactions?format=csv">Download CSV</a>`,
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, tt.path, nil))
+			body := rec.Body.String()
+
+			if got := strings.Count(body, "Download CSV"); got != 1 {
+				t.Errorf("Download CSV control count = %d, want 1; body = %s", got, body)
+			}
+			if !strings.Contains(body, tt.want) {
+				t.Errorf("page does not contain selected-account CSV link %q; body = %s", tt.want, body)
+			}
+		})
+	}
+
+	t.Run("missing account has no download control", func(t *testing.T) {
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/?account=acct-missing", nil))
+		body := rec.Body.String()
+
+		if strings.Contains(body, "Download CSV") {
+			t.Errorf("missing-account page renders a CSV download control; body = %s", body)
 		}
 	})
 }
