@@ -358,12 +358,12 @@ func TestRouterBindsCSVDownloadToValidSelectedAccount(t *testing.T) {
 		{
 			name: "populated selected account",
 			path: "/?account=acct-populated",
-			want: `<a href="/api/accounts/acct-populated/transactions?format=csv">Download CSV</a>`,
+			want: `<a href="/api/accounts/acct-populated/transactions?format=csv" class="download-control">Download CSV</a>`,
 		},
 		{
 			name: "empty selected account",
 			path: "/?account=acct-empty",
-			want: `<a href="/api/accounts/acct-empty/transactions?format=csv">Download CSV</a>`,
+			want: `<a href="/api/accounts/acct-empty/transactions?format=csv" class="download-control">Download CSV</a>`,
 		},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
