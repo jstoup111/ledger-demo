@@ -1,4 +1,4 @@
-// Covers: task:3, task:5
+// Covers: task:3, task:5, task:6
 package httpapi
 
 import (
@@ -2504,6 +2504,74 @@ func TestRouterCSVTransactionsMatchJSONResponse(t *testing.T) {
 			t.Errorf("CSV row %d created_at = %q, want RFC3339: %v", index, row[3], err)
 		} else if got, want := createdAt.Format(time.RFC3339), jsonTransaction.CreatedAt; got != want {
 			t.Errorf("CSV row %d created_at = %q, want JSON created_at %q", index, got, want)
+		}
+	}
+}
+
+func TestRouterCSVTransactionsAreIsolatedBySelectedAccount(t *testing.T) {
+	createdEarlier := time.Date(2026, time.August, 8, 14, 30, 0, 0, time.UTC)
+	store := routerTestStore{
+		accounts: []ledger.Account{
+			{ID: "acct-1", Name: "Checking"},
+			{ID: "acct-2", Name: "Savings"},
+		},
+		transactions: map[string][]ledger.Transaction{
+			"acct-1": {
+				{ID: "txn-checking-2", AccountID: "acct-1", Amount: -4250, Description: "Groceries", CreatedAt: createdEarlier.Add(time.Minute)},
+				{ID: "txn-checking-1", AccountID: "acct-1", Amount: 128350, Description: "Paycheck", CreatedAt: createdEarlier},
+			},
+			"acct-2": {
+				{ID: "txn-savings-2", AccountID: "acct-2", Amount: 7500, Description: "Transfer in", CreatedAt: createdEarlier.Add(3 * time.Minute)},
+				{ID: "txn-savings-1", AccountID: "acct-2", Amount: -2000, Description: "Vacation booking", CreatedAt: createdEarlier.Add(2 * time.Minute)},
+			},
+		},
+	}
+	router, err := NewRouter(&store, routerClock)
+	if err != nil {
+		t.Fatalf("NewRouter() error = %v, want nil", err)
+	}
+
+	parseCSVRows := func(t *testing.T, accountID string) [][]string {
+		t.Helper()
+		rec := httptest.NewRecorder()
+		router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/accounts/"+accountID+"/transactions?format=csv", nil))
+		if got, want := rec.Code, http.StatusOK; got != want {
+			t.Fatalf("CSV status = %d, want %d; body = %s", got, want, rec.Body.String())
+		}
+		records, err := csv.NewReader(rec.Body).ReadAll()
+		if err != nil {
+			t.Fatalf("CSV transactions cannot be parsed: %v; body = %s", err, rec.Body.String())
+		}
+		if len(records) == 0 {
+			t.Fatal("CSV response has no header row")
+		}
+		return records[1:]
+	}
+
+	checkingRows := parseCSVRows(t, "acct-1")
+	savingsRows := parseCSVRows(t, "acct-2")
+	wantCheckingRows := [][]string{
+		{"txn-checking-2", "-4250", "Groceries", "2026-08-08T14:31:00Z"},
+		{"txn-checking-1", "128350", "Paycheck", "2026-08-08T14:30:00Z"},
+	}
+	wantSavingsRows := [][]string{
+		{"txn-savings-2", "7500", "Transfer in", "2026-08-08T14:33:00Z"},
+		{"txn-savings-1", "-2000", "Vacation booking", "2026-08-08T14:32:00Z"},
+	}
+	if got, want := checkingRows, wantCheckingRows; !reflect.DeepEqual(got, want) {
+		t.Errorf("checking CSV rows = %#v, want %#v", got, want)
+	}
+	if got, want := savingsRows, wantSavingsRows; !reflect.DeepEqual(got, want) {
+		t.Errorf("savings CSV rows = %#v, want %#v", got, want)
+	}
+	if got, want := len(savingsRows), len(wantSavingsRows); got != want {
+		t.Errorf("savings CSV row count = %d, want %d", got, want)
+	}
+	for _, savingsRow := range savingsRows {
+		for _, checkingRow := range checkingRows {
+			if reflect.DeepEqual(savingsRow, checkingRow) {
+				t.Errorf("savings CSV row = %#v, must not equal checking CSV row", savingsRow)
+			}
 		}
 	}
 }
