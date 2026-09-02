@@ -1,3 +1,4 @@
+// Covers: task:4
 package web
 
 import (
@@ -36,6 +37,19 @@ func TestEmbeddedStylesheetActivatesBalanceErrorAndTableRules(t *testing.T) {
 		if strings.Contains(rawCSS, forbidden) {
 			t.Errorf("stylesheet must not contain %q", forbidden)
 		}
+	}
+}
+
+func TestEmbeddedStylesheetStylesDownloadControlAsProjectorControl(t *testing.T) {
+	stylesheet, err := FS.ReadFile("style.css")
+	if err != nil {
+		t.Fatalf("read embedded style.css: %v", err)
+	}
+
+	activeCSS := regexp.MustCompile(`/\*[\s\S]*?\*/`).ReplaceAllString(string(stylesheet), "")
+	downloadControl := regexp.MustCompile(`(?s)\.download-control\s*\{[^}]*display:\s*inline-block;[^}]*margin:\s*[^;]+;[^}]*padding:\s*[^;]+;[^}]*background:\s*#ffffff;[^}]*border:\s*2px\s+solid\s+#111111;[^}]*color:\s*#111111;[^}]*\}`)
+	if !downloadControl.MatchString(activeCSS) {
+		t.Error("active stylesheet must render .download-control as a padded, high-contrast inline-block control using the page palette")
 	}
 }
 
