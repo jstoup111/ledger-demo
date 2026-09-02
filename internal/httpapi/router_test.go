@@ -1,8 +1,9 @@
-// Covers: task:3
+// Covers: task:3, task:5
 package httpapi
 
 import (
 	"bytes"
+	"encoding/csv"
 	"encoding/json"
 	"errors"
 	"go/ast"
@@ -15,6 +16,7 @@ import (
 	"net/url"
 	"reflect"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -2428,6 +2430,81 @@ func TestRouterServesCSVAccountTransactions(t *testing.T) {
 				t.Errorf("body = %q, want existing JSON body %q", got, want)
 			}
 		})
+	}
+}
+
+func TestRouterCSVTransactionsMatchJSONResponse(t *testing.T) {
+	createdEarlier := time.Date(2026, time.August, 8, 14, 30, 0, 0, time.UTC)
+	store := routerTestStore{
+		accounts: []ledger.Account{{ID: "acct-1", Name: "Checking"}},
+		transactions: map[string][]ledger.Transaction{
+			"acct-1": {
+				{ID: "txn-0002", AccountID: "acct-1", Amount: -4250, Description: "Groceries", CreatedAt: createdEarlier.Add(time.Minute)},
+				{ID: "txn-0001", AccountID: "acct-1", Amount: 128350, Description: "Deposit", CreatedAt: createdEarlier},
+			},
+		},
+	}
+	router, err := NewRouter(&store, routerClock)
+	if err != nil {
+		t.Fatalf("NewRouter() error = %v, want nil", err)
+	}
+
+	jsonRec := httptest.NewRecorder()
+	router.ServeHTTP(jsonRec, httptest.NewRequest(http.MethodGet, "/api/accounts/acct-1/transactions", nil))
+	if got, want := jsonRec.Code, http.StatusOK; got != want {
+		t.Fatalf("JSON status = %d, want %d; body = %s", got, want, jsonRec.Body.String())
+	}
+	var jsonTransactions []struct {
+		ID          string `json:"id"`
+		AmountCents int64  `json:"amount_cents"`
+		Description string `json:"description"`
+		CreatedAt   string `json:"created_at"`
+	}
+	if err := json.Unmarshal(jsonRec.Body.Bytes(), &jsonTransactions); err != nil {
+		t.Fatalf("JSON transactions cannot be decoded: %v; body = %s", err, jsonRec.Body.String())
+	}
+
+	csvRec := httptest.NewRecorder()
+	router.ServeHTTP(csvRec, httptest.NewRequest(http.MethodGet, "/api/accounts/acct-1/transactions?format=csv", nil))
+	if got, want := csvRec.Code, http.StatusOK; got != want {
+		t.Fatalf("CSV status = %d, want %d; body = %s", got, want, csvRec.Body.String())
+	}
+	csvRecords, err := csv.NewReader(csvRec.Body).ReadAll()
+	if err != nil {
+		t.Fatalf("CSV transactions cannot be parsed: %v; body = %s", err, csvRec.Body.String())
+	}
+	if len(csvRecords) == 0 {
+		t.Fatal("CSV response has no header row")
+	}
+	rows := csvRecords[1:]
+	if got, want := len(rows), len(jsonTransactions); got != want {
+		t.Fatalf("CSV transaction count = %d, want JSON transaction count %d", got, want)
+	}
+
+	for index, row := range rows {
+		if got, want := len(row), 4; got != want {
+			t.Errorf("CSV row %d field count = %d, want %d; row = %#v", index, got, want, row)
+			continue
+		}
+		jsonTransaction := jsonTransactions[index]
+		if got, want := row[0], jsonTransaction.ID; got != want {
+			t.Errorf("CSV row %d ID = %q, want JSON ID %q", index, got, want)
+		}
+		amountCents, err := strconv.ParseInt(row[1], 10, 64)
+		if err != nil {
+			t.Errorf("CSV row %d amount cents = %q, want signed integer: %v", index, row[1], err)
+		} else if got, want := amountCents, jsonTransaction.AmountCents; got != want {
+			t.Errorf("CSV row %d amount cents = %d, want JSON amount cents %d", index, got, want)
+		}
+		if got, want := row[2], jsonTransaction.Description; got != want {
+			t.Errorf("CSV row %d description = %q, want JSON description %q", index, got, want)
+		}
+		createdAt, err := time.Parse(time.RFC3339, row[3])
+		if err != nil {
+			t.Errorf("CSV row %d created_at = %q, want RFC3339: %v", index, row[3], err)
+		} else if got, want := createdAt.Format(time.RFC3339), jsonTransaction.CreatedAt; got != want {
+			t.Errorf("CSV row %d created_at = %q, want JSON created_at %q", index, got, want)
+		}
 	}
 }
 
