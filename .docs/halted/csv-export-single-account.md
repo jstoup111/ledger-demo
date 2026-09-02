@@ -1,6 +1,8 @@
 # Halt record
 
-Status: halted
+Status: resolved
+Resolution cause: operator
+Resolved at: 2026-09-02T14:13:11.849Z
 Slug: csv-export-single-account
 Class: plan-gap
 Halting step: prd_audit
