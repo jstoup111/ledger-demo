@@ -1,4 +1,4 @@
-// Covers: task:3, task:5, task:6, task:7
+// Covers: task:3, task:5, task:6, task:7, task:8
 package httpapi
 
 import (
@@ -1979,6 +1979,66 @@ func TestNewRouterDeclaresExactlyFiveRoutes(t *testing.T) {
 
 	if got, want := registrations, 5; got != want {
 		t.Errorf("NewRouter() route registrations = %d, want %d", got, want)
+	}
+}
+
+func TestTransactionHandlersAvoidDirectTimeFloatsAndStoreWrites(t *testing.T) {
+	_, testFile, _, ok := runtime.Caller(0)
+	if !ok {
+		t.Fatal("runtime.Caller() failed")
+	}
+	directory := strings.TrimSuffix(testFile, "router_test.go")
+	files := []string{directory + "router.go", directory + "csv.go"}
+	found := map[string]bool{
+		"handleAccountTransactions": false,
+		"renderTransactionsCSV":     false,
+	}
+
+	for _, file := range files {
+		parsed, err := parser.ParseFile(token.NewFileSet(), file, nil, 0)
+		if err != nil {
+			t.Fatalf("parser.ParseFile(%q) error = %v", file, err)
+		}
+
+		for _, declaration := range parsed.Decls {
+			function, ok := declaration.(*ast.FuncDecl)
+			if !ok {
+				continue
+			}
+			if _, wanted := found[function.Name.Name]; !wanted {
+				continue
+			}
+			found[function.Name.Name] = true
+			ast.Inspect(function.Body, func(node ast.Node) bool {
+				call, ok := node.(*ast.CallExpr)
+				if !ok {
+					return true
+				}
+
+				if conversion, ok := call.Fun.(*ast.Ident); ok && (conversion.Name == "float32" || conversion.Name == "float64") {
+					t.Errorf("%s contains %s conversion", function.Name.Name, conversion.Name)
+				}
+
+				selector, ok := call.Fun.(*ast.SelectorExpr)
+				if !ok {
+					return true
+				}
+				receiver, _ := selector.X.(*ast.Ident)
+				if selector.Sel.Name == "Now" && receiver != nil && receiver.Name == "time" {
+					t.Errorf("%s calls time.Now directly", function.Name.Name)
+				}
+				if selector.Sel.Name == "Append" && receiver != nil && receiver.Name == "store" {
+					t.Errorf("%s calls store.Append directly", function.Name.Name)
+				}
+				return true
+			})
+		}
+	}
+
+	for name, present := range found {
+		if !present {
+			t.Errorf("%s declaration not found", name)
+		}
 	}
 }
 
