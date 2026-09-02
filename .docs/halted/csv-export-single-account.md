@@ -1,6 +1,8 @@
 # Halt record
 
-Status: halted
+Status: resolved
+Resolution cause: operator
+Resolved at: 2026-09-02T15:38:52.206Z
 Slug: csv-export-single-account
 Class: needs-human
 Halting step: unknown
