@@ -1,20 +1,18 @@
 # Halt record
 
-Status: resolved
-Resolution cause: operator
-Resolved at: 2026-09-02T15:27:46.324Z
+Status: halted
 Slug: csv-export-single-account
 Class: needs-human
-Halting step: prd_audit
-Phase: SHIP
+Halting step: unknown
+Phase: unknown
 Branch: feat/daemon-csv-export-single-account
-Head SHA: 17233398da9bcac9fb50ca34903fd355caebbd94
-Halted at: 2026-09-02T15:23:16.388Z
+Head SHA: 16e9a69c07cc6659b5710de23d993fa9ef680e86
+Halted at: 2026-09-02T15:36:55.197Z
 
 Push status: this record may be ahead of the remote; push is not guaranteed.
 
 ## HALT
 
 ```text
-Validation group "prd_audit" halted in auto mode: step 'prd_audit' failed: prd-audit found rejected rows: S2.2 (PRD audit finding S2.2 has an invalid Plan task.); S2.4 (PRD audit finding S2.4 has an invalid Plan task.); S2.6 (PRD audit finding S2.6 has an invalid Plan task.); S4.6 (PRD audit finding S4.6 has an invalid Plan task.) — correct the report and re-audit; PRD audit report is missing criterion-grade rows for S2.2, S2.4, S2.6, S4.6.
+A FINISH publication transition did not change the state it owns. Next action: Inspect the listed transition and state, resolve why it is unchanged, then retry FINISH. Detail: The author_pr_prose transition left pr.prose unchanged at placeholder.
 ```
