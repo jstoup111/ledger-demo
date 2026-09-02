@@ -1,4 +1,4 @@
-// Covers: task:3, task:5, task:6
+// Covers: task:3, task:5, task:6, task:7
 package httpapi
 
 import (
@@ -2430,6 +2430,49 @@ func TestRouterServesCSVAccountTransactions(t *testing.T) {
 				t.Errorf("body = %q, want existing JSON body %q", got, want)
 			}
 		})
+	}
+}
+
+func TestRouterCSVDownloadDoesNotMutateStore(t *testing.T) {
+	createdAt := time.Date(2026, time.August, 8, 14, 30, 0, 0, time.UTC)
+	store := routerTestStore{
+		accounts: []ledger.Account{
+			{ID: "acct-1", Name: "Checking"},
+			{ID: "acct-2", Name: "Savings"},
+		},
+		transactions: map[string][]ledger.Transaction{
+			"acct-1": {
+				{ID: "txn-0001", AccountID: "acct-1", Amount: 12500, Description: "Paycheck", CreatedAt: createdAt},
+				{ID: "txn-0002", AccountID: "acct-1", Amount: -4250, Description: "Groceries", CreatedAt: createdAt.Add(time.Minute)},
+			},
+			"acct-2": {},
+		},
+	}
+	accountsBefore := append([]ledger.Account(nil), store.accounts...)
+	transactionsBefore := make(map[string][]ledger.Transaction, len(store.transactions))
+	for accountID, transactions := range store.transactions {
+		transactionsBefore[accountID] = make([]ledger.Transaction, len(transactions))
+		copy(transactionsBefore[accountID], transactions)
+	}
+
+	router, err := NewRouter(&store, routerClock)
+	if err != nil {
+		t.Fatalf("NewRouter() error = %v, want nil", err)
+	}
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/accounts/acct-1/transactions?format=csv", nil))
+
+	if got, want := rec.Code, http.StatusOK; got != want {
+		t.Fatalf("status = %d, want %d", got, want)
+	}
+	if _, err := csv.NewReader(bytes.NewReader(rec.Body.Bytes())).ReadAll(); err != nil {
+		t.Fatalf("CSV response does not parse: %v", err)
+	}
+	if got, want := store.accounts, accountsBefore; !reflect.DeepEqual(got, want) {
+		t.Errorf("accounts mutated by CSV download = %#v, want %#v", got, want)
+	}
+	if got, want := store.transactions, transactionsBefore; !reflect.DeepEqual(got, want) {
+		t.Errorf("transactions mutated by CSV download = %#v, want %#v", got, want)
 	}
 }
 
