@@ -2379,7 +2379,7 @@ func footerCell(t *testing.T, footer, class string) string {
 		t.Fatalf("footer has no %q cell; footer = %s", class, footer)
 	}
 	rest := footer[start+len(marker):]
-	return rest[:strings.Index(rest, "</td>")]
+	return rest[:strings.Index(rest, "</span>")]
 }
 
 func TestRouterRendersTotalsFooter(t *testing.T) {
@@ -2408,6 +2408,16 @@ func TestRouterRendersTotalsFooter(t *testing.T) {
 			}
 			if !strings.Contains(footer, "Totals") {
 				t.Errorf("footer lacks Totals label: %s", footer)
+			}
+			// The table has three columns; the footer row must span exactly three.
+			span := strings.Count(footer, "<th")
+			if strings.Contains(footer, `<td colspan="2">`) {
+				span += 2
+			} else {
+				span += strings.Count(footer, "<td")
+			}
+			if span != 3 {
+				t.Errorf("footer row spans %d columns, want 3: %s", span, footer)
 			}
 			for class, want := range map[string]string{
 				"totals-deposits":    tt.wantDeposits,
