@@ -121,3 +121,19 @@ test_suite:
 
 # complexity:
 #   default_tier: M
+
+# --- build_review custom rubric ------------------------------------------------
+# Money-safety policy: flags float money and lossy dollar/cent conversion.
+# Skill lives at .claude/skills/money-safety/SKILL.md (project source).
+build_review:
+  adjudication:
+    enabled: true
+  custom_rubrics:
+    moneySafety:
+      enabled: true
+      skill: money-safety
+      source: project
+      question: >-
+        Does any changed code represent or compute monetary amounts with floating
+        point, or lose precision when parsing, rounding, or converting dollars and cents?
+      llm_provider: claude
