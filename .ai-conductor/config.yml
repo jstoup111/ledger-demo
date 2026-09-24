@@ -124,7 +124,7 @@ test_suite:
 
 # --- build_review custom rubric ------------------------------------------------
 # Money-safety policy: flags float money and lossy dollar/cent conversion.
-# Skill lives at .claude/skills/money-safety/SKILL.md (project source).
+# Skill lives at .agents/skills/money-safety/SKILL.md (project source; .claude/ is git-excluded).
 build_review:
   adjudication:
     enabled: true
