@@ -39,6 +39,7 @@
         <tbody>
           {{range .Transactions}}<tr><td>{{.Description}}</td><td>{{.Amount}}</td><td>{{.RecordedAt}}</td></tr>{{end}}
         </tbody>
+        <tfoot><tr class="totals"><th scope="row">Totals</th><td class="totals-deposits">{{.TotalDeposits}}</td><td class="totals-withdrawals">{{.TotalWithdrawals}}</td><td class="totals-net">{{.TotalNet}}</td></tr></tfoot>
       </table>
       {{else}}
       <p>No transactions.</p>
