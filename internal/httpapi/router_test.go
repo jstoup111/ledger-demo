@@ -334,6 +334,60 @@ func TestRouterRendersAccountPageMarkup(t *testing.T) {
 	})
 }
 
+func TestRouterRendersAverageLine(t *testing.T) {
+	created := time.Date(2026, time.August, 8, 14, 30, 0, 0, time.UTC)
+	store := routerTestStore{
+		accounts: []ledger.Account{
+			{ID: "acct-1", Name: "Checking"},
+			{ID: "acct-2", Name: "Savings"},
+		},
+		transactions: map[string][]ledger.Transaction{
+			"acct-1": {
+				{ID: "txn-0001", AccountID: "acct-1", Amount: 1000, Description: "Ten", CreatedAt: created},
+				{ID: "txn-0002", AccountID: "acct-1", Amount: 2000, Description: "Twenty", CreatedAt: created.Add(time.Minute)},
+			},
+		},
+	}
+	router, err := NewRouter(&store, routerClock)
+	if err != nil {
+		t.Fatalf("NewRouter() error = %v, want nil", err)
+	}
+
+	tests := []struct {
+		name      string
+		path      string
+		wantCount int
+		wantLine  string
+		wantEmpty bool
+	}{
+		{name: "default first account renders one average line after the table", path: "/", wantCount: 1, wantLine: `<p class="average">Average: $15.00</p>`},
+		{name: "explicit account renders the average of its transactions", path: "/?account=acct-1", wantCount: 1, wantLine: `<p class="average">Average: $15.00</p>`},
+		{name: "empty account shows no average line", path: "/?account=acct-2", wantCount: 0, wantEmpty: true},
+		{name: "unknown account shows no average line", path: "/?account=nope", wantCount: 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, tt.path, nil))
+			body := rec.Body.String()
+
+			if got := strings.Count(body, "Average:"); got != tt.wantCount {
+				t.Errorf("Average line count = %d, want %d; body = %s", got, tt.wantCount, body)
+			}
+			if tt.wantLine != "" {
+				line := strings.Index(body, tt.wantLine)
+				table := strings.Index(body, "</table>")
+				if line < 0 || table < 0 || line < table {
+					t.Errorf("body does not contain %q after the table; body = %s", tt.wantLine, body)
+				}
+			}
+			if tt.wantEmpty && !strings.Contains(body, "<p>No transactions.</p>") {
+				t.Errorf("empty account does not show the empty message; body = %s", body)
+			}
+		})
+	}
+}
+
 func TestRouterRendersPageErrorStates(t *testing.T) {
 	store := routerTestStore{
 		accounts: []ledger.Account{
