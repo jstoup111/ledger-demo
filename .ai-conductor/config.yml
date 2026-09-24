@@ -26,15 +26,17 @@ harness_version: ">=0.99.0"
 # "steps.build.tdd requires llm_provider to be a string". Per-TDD-phase
 # (red/green) model control would mean collapsing this to a scalar provider and
 # inverting every pin below.
-llm_provider: [codex, claude]
+# Temporary: claude first while codex usage is exhausted (moneySafety rubric test).
+llm_provider: [claude, codex]
 
 steps:
   # BUILD — the implementation lane. Provider stays codex (inherited from the
   # top-level array's first entry); only the model and effort are pinned, which
   # makes the worktree's intended baseline explicit.
   build:
-    model: gpt-5.6-terra
-    effort: medium
+    # Temporary: pinned to claude while codex usage is exhausted, to test the
+    # moneySafety custom rubric end to end.
+    llm_provider: claude
 
   # DECIDE — requirements, design, and traceability judgement. Wrong output here
   # cascades into every downstream step, so it stays on claude.
@@ -69,7 +71,7 @@ steps:
     llm_provider: claude
 
   finish:
-    llm_provider: codex
+    llm_provider: claude
 
 # Everything not pinned above runs on codex, notably: build (the TDD/pipeline
 # implementation lane), stories, plan, complexity, architecture_diagram,
