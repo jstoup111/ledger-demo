@@ -4,6 +4,12 @@ spec_hash: ff2f8829e9480b86b66bbc42e3178012f068e06c86ba745b4071326fa48ddd5f
 pr: https://github.com/jstoup111/ledger-demo/pull/79
 shipped: 2026-09-24
 engine_version: 20260924T185433Z-35e4fb3484b8
+findings:
+  - gate: prd_audit
+    grade: OVER_SCOPE
+    criterion: NC.1
+    summary: "internal/httpapi/router.go:153 — unplanned stdlib `log.Printf` of the totals error on the 500 path"
+    accepted: true
 ---
 
 ## Cost
