@@ -68,6 +68,7 @@ type pageData struct {
 	RequestedAccount   string
 	FormAction         string
 	Transactions       []pageTransaction
+	Average            string
 }
 
 func handlePage(page *template.Template, store ledger.Store) http.HandlerFunc {
@@ -150,6 +151,9 @@ func handlePage(page *template.Template, store ledger.Store) http.HandlerFunc {
 		data.SelectedAccount = selected.Name
 		data.HasSelectedAccount = true
 		data.FormAction = "/api/accounts/" + url.PathEscape(selected.ID) + "/transactions"
+		if avg, ok := averageDollars(transactions); ok {
+			data.Average = "$" + formatAverage(avg)
+		}
 		data.Transactions = make([]pageTransaction, 0, len(transactions))
 		for _, transaction := range transactions {
 			data.Transactions = append(data.Transactions, pageTransaction{

@@ -40,6 +40,7 @@
           {{range .Transactions}}<tr><td>{{.Description}}</td><td>{{.Amount}}</td><td>{{.RecordedAt}}</td></tr>{{end}}
         </tbody>
       </table>
+      <p class="average">Average: {{.Average}}</p>
       {{else}}
       <p>No transactions.</p>
       {{end}}
