@@ -53,20 +53,20 @@ steps:
   # acceptance criteria into assertions, and a mis-read criterion produces a test
   # that passes for the wrong reason.
   acceptance_specs:
-    llm_provider: claude
+    llm_provider: codex
 
   # Gates that render a verdict on work already done.
   build_review:
-    llm_provider: claude
+    llm_provider: codex
   prd_audit:
-    llm_provider: claude
+    llm_provider: codex
   architecture_review_as_built:
-    llm_provider: claude
+    llm_provider: codex
 
   # Semantic conflict resolution — a wrong merge can silently revert completed
   # work, which is a judgement failure rather than a coding one.
   rebase:
-    llm_provider: claude
+    llm_provider: codex
 
   finish:
     llm_provider: codex
