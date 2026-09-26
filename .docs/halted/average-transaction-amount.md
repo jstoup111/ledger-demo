@@ -1,6 +1,8 @@
 # Halt record
 
-Status: halted
+Status: resolved
+Resolution cause: operator
+Resolved at: 2026-09-26T17:15:35.610Z
 Slug: average-transaction-amount
 Class: needs-human
 Halting step: unknown
