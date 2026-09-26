@@ -136,4 +136,4 @@ build_review:
       question: >-
         Does any changed code represent or compute monetary amounts with floating
         point, or lose precision when parsing, rounding, or converting dollars and cents?
-      llm_provider: claude
+      llm_provider: codex
