@@ -2,21 +2,66 @@ package main
 
 import (
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"reflect"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/jstoup111/ledger-demo/internal/clock"
+	"github.com/jstoup111/ledger-demo/internal/httpapi"
 	"github.com/jstoup111/ledger-demo/internal/ledger"
 	"github.com/jstoup111/ledger-demo/internal/store"
 )
 
 var seedClock = clock.FixedClock{T: time.Date(2026, time.August, 8, 14, 30, 0, 0, time.UTC)}
+
+// Covers: task:1
+func TestSeededAccountPageRendersTransactionCount(t *testing.T) {
+	database, err := store.Open(":memory:")
+	if err != nil {
+		t.Fatalf("Open(:memory:) error = %v", err)
+	}
+	if err := loadSeedData(seedClock, database); err != nil {
+		t.Fatalf("loadSeedData() error = %v", err)
+	}
+
+	router, err := httpapi.NewRouter(database, seedClock)
+	if err != nil {
+		t.Fatalf("NewRouter() error = %v", err)
+	}
+	response := httptest.NewRecorder()
+	router.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/", nil))
+	if response.Code != http.StatusOK {
+		t.Fatalf("GET / status = %d, want %d; body = %s", response.Code, http.StatusOK, response.Body.String())
+	}
+
+	body := response.Body.String()
+	if got := strings.Count(body, "Transactions:"); got != 1 {
+		t.Fatalf("Transactions: lines = %d, want exactly 1; body = %s", got, body)
+	}
+	countMatch := regexp.MustCompile(`Transactions:\s*(\d+)`).FindStringSubmatch(body)
+	if len(countMatch) != 2 {
+		t.Fatalf("transaction count line not found; body = %s", body)
+	}
+	count, err := strconv.Atoi(countMatch[1])
+	if err != nil {
+		t.Fatalf("parse transaction count %q: %v", countMatch[1], err)
+	}
+	rows := strings.Count(body, "<tr><td>")
+	if count != rows {
+		t.Fatalf("displayed transaction count = %d, displayed rows = %d; body = %s", count, rows, body)
+	}
+	if tableEnd, countPosition := strings.Index(body, "</table>"), strings.Index(body, countMatch[0]); tableEnd < 0 || countPosition <= tableEnd {
+		t.Fatalf("table end = %d, transaction count position = %d; want count after table; body = %s", tableEnd, countPosition, body)
+	}
+}
 
 func TestLoadSeedDataIsDeterministic(t *testing.T) {
 	first := seedSnapshot(t)
