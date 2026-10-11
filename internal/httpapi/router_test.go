@@ -2181,6 +2181,7 @@ func TestRouterRejectsMalformedJSONAccountRequestsWithoutOpeningAccounts(t *test
 		body string
 	}{
 		{name: "malformed JSON", body: "not json"},
+		{name: "valid object followed by trailing text", body: `{"name":"Holiday Fund"} trailing`},
 		{name: "non-string name", body: `{"name":42}`},
 		{name: "missing name", body: `{}`},
 	}
@@ -2207,6 +2208,9 @@ func TestRouterRejectsMalformedJSONAccountRequestsWithoutOpeningAccounts(t *test
 			}
 			if got, want := response.Error.Code, "account_name_empty"; got != want {
 				t.Errorf("POST /api/accounts error code = %q, want %q", got, want)
+			}
+			if got, want := response.Error.Message, "Account name must not be empty."; got != want {
+				t.Errorf("POST /api/accounts error message = %q, want %q", got, want)
 			}
 
 			accounts := httptest.NewRecorder()

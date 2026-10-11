@@ -351,6 +351,10 @@ func handleJSONOpenAccount(w http.ResponseWriter, r *http.Request, store ledger.
 		writeJSONError(w, ledger.ErrAccountNameEmpty)
 		return
 	}
+	if err := decoder.Decode(&struct{}{}); err != io.EOF {
+		writeJSONError(w, ledger.ErrAccountNameEmpty)
+		return
+	}
 	var request struct {
 		Name *string
 	}
