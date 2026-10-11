@@ -138,3 +138,11 @@ build_review:
         point, or lose precision when parsing, rounding, or converting dollars and cents?
       llm_provider: claude
       effort: low
+
+# --- Stacked delivery ----------------------------------------------------------
+# Opt in to child-by-child builds of a sliced plan (`## Slices` manifest plus a
+# `Stacked-Delivery: approved` line in .docs/complexity/<plan-stem>.md). Two
+# slices is enough for the first stacked test on this demo repo.
+stacked_prs:
+  enabled: true
+  max_slices: 2
