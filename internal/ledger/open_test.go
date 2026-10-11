@@ -1,9 +1,10 @@
-// Covers: S1.1, S1.2, S1.3, S1.4, S1.5, S2.1, S2.2, S2.3
+// Covers: S1.1, S1.2, S1.3, S1.4, S1.5, S2.1, S2.2, S2.3, S3.1, S3.2
 package ledger
 
 import (
 	"errors"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -61,6 +62,45 @@ func TestOpenAccountPreservesSurroundingWhitespace(t *testing.T) {
 
 	if err != nil || account.Name != name || len(store.accounts) != 1 || store.accounts[0].Name != name {
 		t.Fatalf("OpenAccount(%q) = %#v, %v; stored accounts = %#v; want preserved name", name, account, err, store.accounts)
+	}
+}
+
+func TestOpenAccountLimitsNamesToFortyCharacters(t *testing.T) {
+	seededAccounts := []Account{
+		{ID: "acct-1", Name: "Checking"},
+		{ID: "acct-2", Name: "Savings"},
+		{ID: "acct-3", Name: "Travel"},
+	}
+
+	tests := []struct {
+		name        string
+		accountName string
+		wantErr     error
+	}{
+		{name: "40 ASCII characters", accountName: strings.Repeat("a", 40)},
+		{name: "41 ASCII characters", accountName: strings.Repeat("a", 41), wantErr: ErrAccountNameTooLong},
+		{name: "40 e acute characters", accountName: strings.Repeat("é", 40)},
+		{name: "41 e acute characters", accountName: strings.Repeat("é", 41), wantErr: ErrAccountNameTooLong},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			store := &openStore{accounts: append([]Account(nil), seededAccounts...)}
+
+			account, err := OpenAccount(store, tt.accountName)
+
+			if tt.wantErr != nil {
+				if account != (Account{}) || !errors.Is(err, tt.wantErr) || len(store.accounts) != 3 || store.accountsCalls != 0 || store.insertCalls != 0 {
+					t.Fatalf("OpenAccount(%q) = %#v, %v; accounts = %d, Accounts calls = %d, InsertAccount calls = %d; want zero account, ErrAccountNameTooLong, three accounts, and no store calls", tt.accountName, account, err, len(store.accounts), store.accountsCalls, store.insertCalls)
+				}
+				return
+			}
+
+			wantAccount := Account{ID: "acct-4", Name: tt.accountName}
+			if err != nil || account != wantAccount || len(store.accounts) != 4 || store.insertCalls != 1 {
+				t.Fatalf("OpenAccount(%q) = %#v, %v; accounts = %#v, InsertAccount calls = %d; want %#v, nil, four accounts, and one insert", tt.accountName, account, err, store.accounts, store.insertCalls, wantAccount)
+			}
+		})
 	}
 }
 
