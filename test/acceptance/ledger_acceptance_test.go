@@ -1,3 +1,4 @@
+// Covers: task:6
 package acceptance
 
 // Acceptance specs for the base ledger, generated from .docs/stories/base-ledger.md.
@@ -236,13 +237,17 @@ func TestAcceptanceTransactionLogOrder(t *testing.T) {
 		}
 	})
 
-	t.Run("POST /api/accounts is not allowed", func(t *testing.T) {
-		res := a.postJSON("/api/accounts", `{}`)
-		if res.status != http.StatusMethodNotAllowed {
-			t.Errorf("status = %d, want 405", res.status)
-		}
-		if res.body != "" {
-			t.Errorf("body = %q, want empty", res.body)
+	t.Run("PUT and DELETE /api/accounts are not allowed", func(t *testing.T) {
+		for _, method := range []string{http.MethodPut, http.MethodDelete} {
+			t.Run(method, func(t *testing.T) {
+				res := a.request(method, "/api/accounts", "", "")
+				if res.status != http.StatusMethodNotAllowed {
+					t.Errorf("status = %d, want 405", res.status)
+				}
+				if res.body != "" {
+					t.Errorf("body = %q, want empty", res.body)
+				}
+			})
 		}
 	})
 }

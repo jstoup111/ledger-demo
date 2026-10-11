@@ -1,3 +1,4 @@
+// Covers: task:6
 package httpapi
 
 import (
@@ -1845,6 +1846,69 @@ func postTransaction(router http.Handler, path, contentType, body string) *httpt
 	return rec
 }
 
+func TestRouterOpensJSONAccountAndExposesItAcrossEndpoints(t *testing.T) {
+	store := &routerTestStore{
+		accounts: []ledger.Account{
+			{ID: "acct-1", Name: "Checking"},
+			{ID: "acct-2", Name: "Savings"},
+			{ID: "acct-3", Name: "Vacation"},
+		},
+	}
+	router, err := NewRouter(store, routerClock)
+	if err != nil {
+		t.Fatalf("NewRouter() error = %v, want nil", err)
+	}
+
+	created := postTransaction(router, "/api/accounts", "application/json", `{"name":"Holiday Fund"}`)
+	if got, want := created.Code, http.StatusCreated; got != want {
+		t.Fatalf("POST /api/accounts status = %d, want %d; body = %s", got, want, created.Body.String())
+	}
+	if got, want := created.Header().Get("Content-Type"), "application/json; charset=utf-8"; got != want {
+		t.Errorf("POST /api/accounts Content-Type = %q, want %q", got, want)
+	}
+	if got, want := created.Body.String(), "{\"id\":\"acct-4\",\"name\":\"Holiday Fund\",\"balance_cents\":0}\n"; got != want {
+		t.Errorf("POST /api/accounts body = %q, want %q", got, want)
+	}
+
+	accounts := httptest.NewRecorder()
+	router.ServeHTTP(accounts, httptest.NewRequest(http.MethodGet, "/api/accounts", nil))
+	var listed []accountResponse
+	if err := json.Unmarshal(accounts.Body.Bytes(), &listed); err != nil {
+		t.Fatalf("GET /api/accounts response is not JSON: %v; body = %s", err, accounts.Body.String())
+	}
+	if got, want := listed, []accountResponse{
+		{ID: "acct-1", Name: "Checking", BalanceCents: 0},
+		{ID: "acct-2", Name: "Savings", BalanceCents: 0},
+		{ID: "acct-3", Name: "Vacation", BalanceCents: 0},
+		{ID: "acct-4", Name: "Holiday Fund", BalanceCents: 0},
+	}; !reflect.DeepEqual(got, want) {
+		t.Errorf("GET /api/accounts = %#v, want %#v", got, want)
+	}
+
+	emptyTransactions := httptest.NewRecorder()
+	router.ServeHTTP(emptyTransactions, httptest.NewRequest(http.MethodGet, "/api/accounts/acct-4/transactions", nil))
+	if got, want := emptyTransactions.Code, http.StatusOK; got != want {
+		t.Errorf("GET /api/accounts/acct-4/transactions status = %d, want %d", got, want)
+	}
+	if got, want := emptyTransactions.Body.String(), "[]\n"; got != want {
+		t.Errorf("GET /api/accounts/acct-4/transactions body = %q, want %q", got, want)
+	}
+
+	posted := postTransaction(router, "/api/accounts/acct-4/transactions", "application/json", `{"amount":"25.00","description":"First deposit"}`)
+	if got, want := posted.Code, http.StatusCreated; got != want {
+		t.Fatalf("POST /api/accounts/acct-4/transactions status = %d, want %d; body = %s", got, want, posted.Body.String())
+	}
+
+	accounts = httptest.NewRecorder()
+	router.ServeHTTP(accounts, httptest.NewRequest(http.MethodGet, "/api/accounts", nil))
+	if err := json.Unmarshal(accounts.Body.Bytes(), &listed); err != nil {
+		t.Fatalf("GET /api/accounts response after posting is not JSON: %v; body = %s", err, accounts.Body.String())
+	}
+	if got, want := listed[3].BalanceCents, int64(2500); got != want {
+		t.Errorf("acct-4 balance_cents = %d, want %d", got, want)
+	}
+}
+
 func TestRouterRejectsWrongMethodsAndUnknownPathsWithoutABody(t *testing.T) {
 	store := routerTestStore{
 		accounts: []ledger.Account{{ID: "acct-1", Name: "Checking"}},
@@ -1863,7 +1927,7 @@ func TestRouterRejectsWrongMethodsAndUnknownPathsWithoutABody(t *testing.T) {
 		path   string
 		status int
 	}{
-		{method: http.MethodPost, path: "/api/accounts", status: http.StatusMethodNotAllowed},
+		{method: http.MethodPut, path: "/api/accounts", status: http.StatusMethodNotAllowed},
 		{method: http.MethodPut, path: "/api/accounts/acct-1/transactions", status: http.StatusMethodNotAllowed},
 		{method: http.MethodPatch, path: "/api/accounts/acct-1/transactions", status: http.StatusMethodNotAllowed},
 		{method: http.MethodDelete, path: "/api/accounts/acct-1/transactions", status: http.StatusMethodNotAllowed},
@@ -1889,7 +1953,7 @@ func TestRouterRejectsWrongMethodsAndUnknownPathsWithoutABody(t *testing.T) {
 	}
 }
 
-func TestNewRouterDeclaresExactlyFiveRoutes(t *testing.T) {
+func TestNewRouterDeclaresExactlySixRoutes(t *testing.T) {
 	_, testFile, _, ok := runtime.Caller(0)
 	if !ok {
 		t.Fatal("runtime.Caller() failed")
@@ -1923,7 +1987,7 @@ func TestNewRouterDeclaresExactlyFiveRoutes(t *testing.T) {
 		})
 	}
 
-	if got, want := registrations, 5; got != want {
+	if got, want := registrations, 6; got != want {
 		t.Errorf("NewRouter() route registrations = %d, want %d", got, want)
 	}
 }

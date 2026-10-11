@@ -39,6 +39,7 @@ func NewRouter(store ledger.Store, clock clock.Clock) (http.Handler, error) {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/accounts", handleAccounts(store))
+	mux.HandleFunc("POST /api/accounts", handleOpenAccount(store))
 	mux.HandleFunc("GET /api/accounts/{id}/transactions", handleAccountTransactions(store))
 	mux.HandleFunc("POST /api/accounts/{id}/transactions", handlePostTransaction(store, clock))
 	mux.Handle("GET /style.css", http.FileServerFS(web.FS))
@@ -297,6 +298,37 @@ func handleAccountTransactions(store ledger.Store) http.HandlerFunc {
 
 		w.Header().Set("Content-Type", "application/json; charset=utf-8")
 		_ = json.NewEncoder(w).Encode(response)
+	}
+}
+
+func handleOpenAccount(store ledger.Store) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		mediaType, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
+		if err != nil || mediaType != "application/json" {
+			return
+		}
+
+		var request struct {
+			Name string `json:"name"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			http.Error(w, "open account failed", http.StatusBadRequest)
+			return
+		}
+
+		account, err := ledger.OpenAccount(store, request.Name)
+		if err != nil {
+			http.Error(w, "open account failed", http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		w.WriteHeader(http.StatusCreated)
+		_ = json.NewEncoder(w).Encode(accountResponse{
+			ID:           account.ID,
+			Name:         account.Name,
+			BalanceCents: 0,
+		})
 	}
 }
 
