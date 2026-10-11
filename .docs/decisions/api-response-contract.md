@@ -113,6 +113,18 @@ value.
 > generic one. The rule itself is unchanged: any code outside the documented set renders the generic
 > message, escaped, never an empty panel.
 
+> **Amended 2026-10-10 by open-a-new-account (DECIDE):** the API gains a fourth JSON endpoint and two
+> codes; nothing above or below changes. `POST /api/accounts` opens an account. JSON request
+> `{ "name": "Holiday Fund" }` → `201`, body in the `GET /api/accounts` element shape:
+> `{ "id": "acct-4", "name": "Holiday Fund", "balance_cents": 0 }`. Form-encoded (or any non-JSON)
+> body → `303 See Other`, `Location: /?account=«new id»`; on rejection `Location: /?error=«code»`, plus
+> `&detail=«character count»` for `account_name_too_long` only. Codes, both `400`:
+> `account_name_empty` — "Account name must not be empty." (name empty or whitespace only, or a JSON body that does not parse or has no string `name`);
+> `account_name_too_long` — "Account name is too long." enriched to
+> "Account name is too long. Submitted: «n» characters; the limit is 40." (name over 40 characters).
+> `GET /api/accounts` order is by id **sequence** (acct-2 before acct-10), not id text. Mechanism:
+> `adr-2026-10-10-sequential-account-ids-ordered-by-sequence.md`.
+
 ## Error responses
 
 One shape, always:

@@ -63,20 +63,17 @@ the audience has a single number to watch.
 - Given no `account` query parameter, when `GET /` is requested, then the page renders `200` showing
   the first account by id ascending, not a `404` and not an error panel.
 - Given `GET /?account=acct-nope` for an account that does not exist, when the page renders, then it
-  responds `200` with a visible message stating the account was not found, and no balance element is
-  rendered.
-
-  > **Amended 2026-08-08 by base-ledger conflict-check (F2):** the assertion now also fixes what
-  > else the page omits — for an unknown account the page renders the account list and the
-  > not-found message **only**: no balance element, no transaction list, and **no post form**.
-  > Rendering the form would offer the presenter a submission that can only fail, since there is no
-  > valid account to post against.
+  responds `200` with the account list and a visible message stating the account was not found
+  **only**: no balance element, no transaction list, and no form — a form would offer the presenter
+  a submission that can only fail, since there is no valid account to post against.
 - Given `GET /?account=%3Cscript%3Ealert(1)%3C%2Fscript%3E`, when the page renders, then the value is
   HTML-escaped in the output and no raw `<script>` tag appears in the response body.
 - Given a request for `GET /api/accounts` while the database file cannot be opened, when the handler
   runs, then the response is `500` with `Content-Type: text/plain` and the failure is written to the
   stdlib `log`.
-- Given `POST /api/accounts`, when the request is made, then the response is `405` with an empty body.
+- Given `PUT` or `DELETE` on `/api/accounts`, when the request is made, then the response is `405`
+  with an empty body. (`POST /api/accounts` opens an account; it is owned by
+  `.docs/stories/open-a-new-account.md` Story 4.)
 
 ### Done When
 - [ ] `GET /` returns `200 text/html` and contains all three seeded account names.
@@ -186,15 +183,10 @@ sees cause and effect.
   `303` with `Location: /?account=acct-1&error=description_empty`, following it renders a visible
   error panel above the form, and no transaction row was written.
 - Given the form is submitted with amount `abc`, when it is processed, then the redirect carries
-  `error=amount_malformed` and the rendered page shows the corresponding human-readable message.
-
-  > **Amended 2026-08-08 by base-ledger conflict-check (F1):** this story no longer owns rule
-  > semantics. Story 5 owns which rule fires and what it reports; Story 4 owns that the same rule
-  > fires through both content types. This story keeps **one** representative rejection
-  > (`description_empty`, above) because its actual subject is that a code arriving in the URL
-  > becomes a visible panel on the page — not that the six rules are correct. The `amount_malformed`
-  > scenario here is retained as a second data point only; it must not be re-asserted at the
-  > sentinel level, which belongs to Story 5.
+  `error=amount_malformed` and the rendered page shows the corresponding human-readable message. This
+  is a second data point for "a code in the URL becomes a visible panel" only; which rule fires and
+  what it reports is owned by Story 5 (and same-rule-both-content-types by Story 4), and is not
+  re-asserted here at the sentinel level.
 - Given a redirect arrives carrying `error=not_a_real_code`, when the page renders, then a **generic**
   rejection message is displayed in the error panel — never an empty panel and never a blank region.
 - Given a redirect arrives carrying `error=<script>alert(1)</script>`, when the page renders, then the
@@ -272,13 +264,9 @@ certainty that the API and the page cannot disagree about what is valid.
       exactly, with `amount_cents` an integer.
 - [ ] The created transaction appears in the subsequent list response.
 - [ ] A table-driven test submits each of the six invalid inputs through **both** content types and
-      asserts the same rule fires for each pair — this is the executable form of FR-9.
-
-      > **Amended 2026-08-08 by base-ledger conflict-check (F1):** this test asserts **equivalence
-      > only** — that the rule which fires is the same for both content types, identified by the
-      > wire `code`. It does **not** re-assert sentinel identity or the nothing-recorded invariant
-      > per rule; both belong to Story 5. Scoped this way the matrix cannot drift out of agreement
-      > with Story 5, because it takes Story 5's codes as its input rather than restating them.
+      asserts the same rule fires for each pair, identified by the wire `code` — this is the
+      executable form of FR-9. It asserts equivalence only; sentinel identity and the
+      nothing-recorded invariant per rule belong to Story 5.
 - [ ] Every rejection response body matches `{"error":{"code","message"}}` with a non-empty `message`.
 - [ ] A JSON-number `amount` is rejected as `amount_malformed`.
 - [ ] Transaction count is asserted unchanged after a rejection on each branch separately.
@@ -363,21 +351,11 @@ redone mid-presentation and look exactly like the first attempt.
 
 #### Happy Path
 - Given any prior database state, when `make reset` runs, then the database file is removed and
-  recreated, and it contains exactly three accounts, each with between 8 and 12 transactions.
-
-  > **Amended 2026-08-09 by operator decision (FR-15 reconciliation):** the assertion above is
-  > retained and was inconsistent with this story file's own Story 1 and Story 2, which require
-  > `acct-3` to have none. Effective: three accounts, **two** with 8–12 transactions each and the
-  > **third seeded empty**; the first sums to exactly `128350` cents. See the FR-15 amendment in
-  > `.docs/specs/2026-08-08-base-ledger.md`.
-
-  > **Amended 2026-08-08 by base-ledger conflict-check (F3):** every automated test in this story
-  > that needs a real file sets `LEDGER_DB_PATH` to a **`t.TempDir()`** path and never touches the
-  > default `./ledger.db`. The reset and two-reset-identity assertions are genuinely file-backed —
-  > `reset` deletes a file, which in-memory SQLite cannot express — so they are the one sanctioned
-  > exception to the in-memory-for-tests convention. Confining them to a per-test temporary
-  > directory keeps them from contending with each other under `-count=2`, with tests in other
-  > packages, or with a `make dev` server holding the default database open.
+  recreated, and it contains exactly three accounts: two with 8–12 transactions each and the third
+  (`acct-3`) seeded empty; the first sums to exactly `128350` cents. Every automated test here that
+  needs a real file sets `LEDGER_DB_PATH` to a `t.TempDir()` path and never touches the default
+  `./ledger.db` — the reset assertions are the one sanctioned file-backed exception to the
+  in-memory-for-tests convention.
 - Given `make reset` is run twice in a row, when the two resulting databases are compared, then every
   account row and every transaction row is identical, including all `created_at` values and all ids.
 - Given seeded data, when the transaction ids are read, then they form one unbroken globally
