@@ -17,6 +17,11 @@ Three accounts are seeded: the first has 12 transactions, the second 9, and the 
 Their recorded times cover roughly two months of history and end at a fixed reference instant.
 The first deliberately includes one same-instant pair, so the newest-first identifier tiebreak stays covered by a real test.
 
+### Account page
+
+The account page ends with a totals row showing deposits, withdrawals, and net.
+All three are computed in integer cents, never floats.
+
 ## Stack
 
 Go (stdlib `net/http` with 1.22+ `ServeMux` routing), SQLite via

@@ -68,6 +68,9 @@ type pageData struct {
 	RequestedAccount   string
 	FormAction         string
 	Transactions       []pageTransaction
+	TotalDeposits      string
+	TotalWithdrawals   string
+	TotalNet           string
 }
 
 func handlePage(page *template.Template, store ledger.Store) http.HandlerFunc {
@@ -145,8 +148,17 @@ func handlePage(page *template.Template, store ledger.Store) http.HandlerFunc {
 			http.Error(w, "list transactions failed", http.StatusInternalServerError)
 			return
 		}
+		totals, err := ledger.TotalsOf(transactions)
+		if err != nil {
+			log.Printf("derive totals for account %q: %v", selected.ID, err)
+			http.Error(w, "derive totals failed", http.StatusInternalServerError)
+			return
+		}
 
 		data.Balance = formatDollars(balance)
+		data.TotalDeposits = formatDollars(totals.Deposits)
+		data.TotalWithdrawals = formatDollars(totals.Withdrawals)
+		data.TotalNet = formatDollars(totals.Net)
 		data.SelectedAccount = selected.Name
 		data.HasSelectedAccount = true
 		data.FormAction = "/api/accounts/" + url.PathEscape(selected.ID) + "/transactions"

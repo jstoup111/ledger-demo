@@ -2320,3 +2320,197 @@ func TestRouterLogsUnexpectedStoreErrorsWithoutDisclosingThem(t *testing.T) {
 
 var _ ledger.Store = (*routerTestStore)(nil)
 var _ ledger.Store = failingRouterStore{}
+
+func totalsFixtureStore() *routerTestStore {
+	at := time.Date(2026, time.August, 8, 14, 30, 0, 0, time.UTC)
+	return &routerTestStore{
+		accounts: []ledger.Account{
+			{ID: "acct-1", Name: "Mixed"},
+			{ID: "acct-2", Name: "DepositsOnly"},
+			{ID: "acct-3", Name: "Empty"},
+		},
+		transactions: map[string][]ledger.Transaction{
+			"acct-1": {
+				{ID: "t1", AccountID: "acct-1", Amount: 10000, Description: "a", CreatedAt: at},
+				{ID: "t2", AccountID: "acct-1", Amount: 2550, Description: "b", CreatedAt: at},
+				{ID: "t3", AccountID: "acct-1", Amount: -4025, Description: "c", CreatedAt: at},
+			},
+			"acct-2": {
+				{ID: "t4", AccountID: "acct-2", Amount: 30000, Description: "d", CreatedAt: at},
+				{ID: "t5", AccountID: "acct-2", Amount: 850000, Description: "e", CreatedAt: at},
+			},
+		},
+	}
+}
+
+func renderTotalsPage(t *testing.T, store ledger.Store, path string) (int, string) {
+	t.Helper()
+	router, err := NewRouter(store, routerClock)
+	if err != nil {
+		t.Fatalf("NewRouter() error = %v, want nil", err)
+	}
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, path, nil))
+	return rec.Code, rec.Body.String()
+}
+
+// totalsFooter returns the single tfoot element of body, or "" when absent.
+func totalsFooter(t *testing.T, body string) string {
+	t.Helper()
+	if got := strings.Count(body, "<tfoot"); got > 1 {
+		t.Fatalf("page has %d tfoot elements, want at most 1; body = %s", got, body)
+	}
+	start := strings.Index(body, "<tfoot")
+	if start < 0 {
+		return ""
+	}
+	end := strings.Index(body[start:], "</tfoot>")
+	if end < 0 {
+		t.Fatalf("unterminated tfoot; body = %s", body)
+	}
+	return body[start : start+end+len("</tfoot>")]
+}
+
+func footerCell(t *testing.T, footer, class string) string {
+	t.Helper()
+	marker := `class="` + class + `">`
+	start := strings.Index(footer, marker)
+	if start < 0 {
+		t.Fatalf("footer has no %q cell; footer = %s", class, footer)
+	}
+	rest := footer[start+len(marker):]
+	return rest[:strings.Index(rest, "</span>")]
+}
+
+func TestRouterRendersTotalsFooter(t *testing.T) {
+	tests := []struct {
+		name                          string
+		path                          string
+		wantDeposits, wantWithdrawals string
+		wantNet                       string
+	}{
+		{"mixed amounts", "/?account=acct-1", "$125.50", "-$40.25", "$85.25"},
+		{"deposits only shows zero withdrawals", "/?account=acct-2", "$8,800.00", "$0.00", "$8,800.00"},
+		{"default selection is the first account", "/", "$125.50", "-$40.25", "$85.25"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			code, body := renderTotalsPage(t, totalsFixtureStore(), tt.path)
+			if code != http.StatusOK {
+				t.Fatalf("status = %d, want 200", code)
+			}
+			footer := totalsFooter(t, body)
+			if footer == "" {
+				t.Fatalf("no footer; body = %s", body)
+			}
+			if got := strings.Count(footer, "<tr"); got != 1 {
+				t.Errorf("footer rows = %d, want 1", got)
+			}
+			if !strings.Contains(footer, "Totals") {
+				t.Errorf("footer lacks Totals label: %s", footer)
+			}
+			// The table has three columns; the footer row must span exactly three.
+			span := strings.Count(footer, "<th")
+			if strings.Contains(footer, `<td colspan="2">`) {
+				span += 2
+			} else {
+				span += strings.Count(footer, "<td")
+			}
+			if span != 3 {
+				t.Errorf("footer row spans %d columns, want 3: %s", span, footer)
+			}
+			for class, want := range map[string]string{
+				"totals-deposits":    tt.wantDeposits,
+				"totals-withdrawals": tt.wantWithdrawals,
+				"totals-net":         tt.wantNet,
+			} {
+				if got := footerCell(t, footer, class); got != want {
+					t.Errorf("%s = %q, want %q", class, got, want)
+				}
+			}
+			if !strings.Contains(body, `class="balance">`+tt.wantNet) {
+				t.Errorf("balance text does not equal footer net %q; body = %s", tt.wantNet, body)
+			}
+		})
+	}
+}
+
+func TestRouterTotalsNetEqualsBalanceForEverySeededAccount(t *testing.T) {
+	for _, id := range []string{"acct-1", "acct-2"} {
+		t.Run(id, func(t *testing.T) {
+			_, body := renderTotalsPage(t, totalsFixtureStore(), "/?account="+id)
+			footer := totalsFooter(t, body)
+			net := footerCell(t, footer, "totals-net")
+			if !strings.Contains(body, `class="balance">`+net+" ") {
+				t.Errorf("balance does not match footer net %q; body = %s", net, body)
+			}
+		})
+	}
+}
+
+func TestRouterOmitsTotalsFooterWithoutTransactions(t *testing.T) {
+	tests := []struct {
+		name        string
+		path        string
+		wantStatus  int
+		wantBodyHas string
+	}{
+		{"empty account keeps the No transactions message", "/?account=acct-3", http.StatusOK, "<p>No transactions.</p>"},
+		{"unknown account", "/?account=nope", http.StatusOK, "Requested account"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			code, body := renderTotalsPage(t, totalsFixtureStore(), tt.path)
+			if code != tt.wantStatus {
+				t.Fatalf("status = %d, want %d", code, tt.wantStatus)
+			}
+			if !strings.Contains(body, tt.wantBodyHas) {
+				t.Errorf("body lacks %q; body = %s", tt.wantBodyHas, body)
+			}
+			if strings.Contains(body, "<tfoot") || strings.Contains(body, "Totals") {
+				t.Errorf("body contains totals footer; body = %s", body)
+			}
+		})
+	}
+}
+
+func TestRouterTotalsOverflowYieldsInternalServerErrorWithoutFooter(t *testing.T) {
+	// Balance stays in range (max, 0, max) while the deposits sum overflows.
+	at := time.Date(2026, time.August, 8, 14, 30, 0, 0, time.UTC)
+	store := &routerTestStore{
+		accounts: []ledger.Account{{ID: "acct-1", Name: "Big"}},
+		transactions: map[string][]ledger.Transaction{"acct-1": {
+			{ID: "t1", AccountID: "acct-1", Amount: math.MaxInt64, Description: "a", CreatedAt: at},
+			{ID: "t2", AccountID: "acct-1", Amount: -math.MaxInt64, Description: "b", CreatedAt: at},
+			{ID: "t3", AccountID: "acct-1", Amount: math.MaxInt64, Description: "c", CreatedAt: at},
+		}},
+	}
+	var logs bytes.Buffer
+	log.SetOutput(&logs)
+	defer log.SetOutput(log.Writer())
+
+	code, body := renderTotalsPage(t, store, "/")
+	if code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want 500", code)
+	}
+	if got := strings.TrimSpace(body); got != "derive totals failed" {
+		t.Errorf("body = %q, want %q", got, "derive totals failed")
+	}
+	if strings.Contains(body, "<tfoot") || strings.Contains(body, "<table") {
+		t.Errorf("partial page written before 500; body = %s", body)
+	}
+	if !strings.Contains(logs.String(), ledger.ErrBalanceOverflow.Error()) {
+		t.Errorf("log = %q, want overflow error logged", logs.String())
+	}
+}
+
+func TestRouterTotalsFooterIsDeterministicAndScriptFree(t *testing.T) {
+	_, first := renderTotalsPage(t, totalsFixtureStore(), "/?account=acct-1")
+	_, second := renderTotalsPage(t, totalsFixtureStore(), "/?account=acct-1")
+	if a, b := totalsFooter(t, first), totalsFooter(t, second); a == "" || a != b {
+		t.Errorf("footers differ or missing:\n%s\n%s", a, b)
+	}
+	if strings.Contains(strings.ToLower(first), "<script") {
+		t.Errorf("page contains a script tag; body = %s", first)
+	}
+}
