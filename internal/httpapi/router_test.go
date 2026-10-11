@@ -1,4 +1,4 @@
-// Covers: task:6
+// Covers: task:6, task:7
 package httpapi
 
 import (
@@ -1906,6 +1906,77 @@ func TestRouterOpensJSONAccountAndExposesItAcrossEndpoints(t *testing.T) {
 	}
 	if got, want := listed[3].BalanceCents, int64(2500); got != want {
 		t.Errorf("acct-4 balance_cents = %d, want %d", got, want)
+	}
+}
+
+func TestRouterRejectsMalformedJSONAccountRequestsWithoutOpeningAccounts(t *testing.T) {
+	tests := []struct {
+		name string
+		body string
+	}{
+		{name: "malformed JSON", body: "not json"},
+		{name: "non-string name", body: `{"name":42}`},
+		{name: "missing name", body: `{}`},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			store := &routerTestStore{accounts: []ledger.Account{
+				{ID: "acct-1", Name: "Checking"},
+				{ID: "acct-2", Name: "Savings"},
+				{ID: "acct-3", Name: "Vacation"},
+			}}
+			router, err := NewRouter(store, routerClock)
+			if err != nil {
+				t.Fatalf("NewRouter() error = %v, want nil", err)
+			}
+
+			rejected := postTransaction(router, "/api/accounts", "application/json", tt.body)
+			if got, want := rejected.Code, http.StatusBadRequest; got != want {
+				t.Fatalf("POST /api/accounts status = %d, want %d; body = %s", got, want, rejected.Body.String())
+			}
+			var response errorEnvelope
+			if err := json.Unmarshal(rejected.Body.Bytes(), &response); err != nil {
+				t.Fatalf("POST /api/accounts response is not JSON: %v; body = %s", err, rejected.Body.String())
+			}
+			if got, want := response.Error.Code, "account_name_empty"; got != want {
+				t.Errorf("POST /api/accounts error code = %q, want %q", got, want)
+			}
+
+			accounts := httptest.NewRecorder()
+			router.ServeHTTP(accounts, httptest.NewRequest(http.MethodGet, "/api/accounts", nil))
+			if got, want := accounts.Code, http.StatusOK; got != want {
+				t.Fatalf("GET /api/accounts status = %d, want %d; body = %s", got, want, accounts.Body.String())
+			}
+			var listed []accountResponse
+			if err := json.Unmarshal(accounts.Body.Bytes(), &listed); err != nil {
+				t.Fatalf("GET /api/accounts response is not JSON: %v; body = %s", err, accounts.Body.String())
+			}
+			if got, want := listed, []accountResponse{
+				{ID: "acct-1", Name: "Checking", BalanceCents: 0},
+				{ID: "acct-2", Name: "Savings", BalanceCents: 0},
+				{ID: "acct-3", Name: "Vacation", BalanceCents: 0},
+			}; !reflect.DeepEqual(got, want) {
+				t.Errorf("GET /api/accounts = %#v, want %#v", got, want)
+			}
+		})
+	}
+}
+
+func TestRouterRejectsPUTAccountsWithAnEmptyBody(t *testing.T) {
+	router, err := NewRouter(&routerTestStore{}, routerClock)
+	if err != nil {
+		t.Fatalf("NewRouter() error = %v, want nil", err)
+	}
+
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, httptest.NewRequest(http.MethodPut, "/api/accounts", nil))
+
+	if got, want := rec.Code, http.StatusMethodNotAllowed; got != want {
+		t.Errorf("PUT /api/accounts status = %d, want %d", got, want)
+	}
+	if got := rec.Body.String(); got != "" {
+		t.Errorf("PUT /api/accounts body = %q, want empty", got)
 	}
 }
 

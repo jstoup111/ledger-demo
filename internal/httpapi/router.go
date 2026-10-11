@@ -308,15 +308,21 @@ func handleOpenAccount(store ledger.Store) http.HandlerFunc {
 			return
 		}
 
-		var request struct {
-			Name string `json:"name"`
+		var fields map[string]json.RawMessage
+		decoder := json.NewDecoder(r.Body)
+		if err := decoder.Decode(&fields); err != nil {
+			writeJSONError(w, ledger.ErrAccountNameEmpty)
+			return
 		}
-		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
-			http.Error(w, "open account failed", http.StatusBadRequest)
+		var request struct {
+			Name *string
+		}
+		if err := json.Unmarshal(fields["name"], &request.Name); err != nil || request.Name == nil {
+			writeJSONError(w, ledger.ErrAccountNameEmpty)
 			return
 		}
 
-		account, err := ledger.OpenAccount(store, request.Name)
+		account, err := ledger.OpenAccount(store, *request.Name)
 		if err != nil {
 			http.Error(w, "open account failed", http.StatusInternalServerError)
 			return

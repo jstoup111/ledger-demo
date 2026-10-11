@@ -22,6 +22,8 @@ type errorEnvelope struct {
 
 func codeFor(err error) codedError {
 	switch {
+	case errors.Is(err, ledger.ErrAccountNameEmpty):
+		return codedError{http.StatusBadRequest, "account_name_empty"}
 	case errors.Is(err, ledger.ErrAccountNotFound):
 		return codedError{http.StatusNotFound, "account_not_found"}
 	case errors.Is(err, ledger.ErrAmountZero):
