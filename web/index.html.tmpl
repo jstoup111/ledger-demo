@@ -44,6 +44,11 @@
       <p>No transactions.</p>
       {{end}}
     </section>
+
+    <form method="post" action="/api/accounts">
+      <label>Name <input name="name" required></label>
+      <button type="submit">Open account</button>
+    </form>
     {{else if .ErrorMessage}}
     <p class="error">{{.ErrorMessage}}</p>
     {{end}}

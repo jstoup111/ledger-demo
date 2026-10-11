@@ -1,4 +1,4 @@
-// Covers: task:6, task:7, task:8
+// Covers: task:6, task:7, task:8, task:9
 package httpapi
 
 import (
@@ -1906,6 +1906,77 @@ func TestRouterOpensJSONAccountAndExposesItAcrossEndpoints(t *testing.T) {
 	}
 	if got, want := listed[3].BalanceCents, int64(2500); got != want {
 		t.Errorf("acct-4 balance_cents = %d, want %d", got, want)
+	}
+}
+
+func TestRouterPageFormOpensAndSelectsAccount(t *testing.T) {
+	store := &routerTestStore{
+		accounts: []ledger.Account{
+			{ID: "acct-1", Name: "Checking"},
+			{ID: "acct-2", Name: "Savings"},
+			{ID: "acct-3", Name: "Vacation"},
+		},
+		transactions: map[string][]ledger.Transaction{},
+	}
+	router, err := NewRouter(store, routerClock)
+	if err != nil {
+		t.Fatalf("NewRouter() error = %v, want nil", err)
+	}
+
+	page := httptest.NewRecorder()
+	router.ServeHTTP(page, httptest.NewRequest(http.MethodGet, "/", nil))
+	body := page.Body.String()
+	transactionsPosition := strings.Index(body, `aria-label="Transactions"`)
+	formPosition := strings.Index(body, `<form method="post" action="/api/accounts">`)
+	nameInputPosition := strings.Index(body, `<input name="name" required>`)
+	if transactionsPosition < 0 || formPosition < transactionsPosition || nameInputPosition < formPosition {
+		t.Fatalf("open-account form must follow Transactions and contain the name input; body = %s", body)
+	}
+	if strings.Contains(strings.ToLower(body), "autofocus") {
+		t.Errorf("open-account form must not autofocus; body = %s", body)
+	}
+
+	opened := postTransaction(router, "/api/accounts", "application/x-www-form-urlencoded", url.Values{"name": {"Holiday Fund"}}.Encode())
+	if got, want := opened.Code, http.StatusSeeOther; got != want {
+		t.Fatalf("form POST /api/accounts status = %d, want %d; body = %s", got, want, opened.Body.String())
+	}
+	if got, want := opened.Header().Get("Location"), "/?account=acct-4"; got != want {
+		t.Fatalf("form POST /api/accounts Location = %q, want %q", got, want)
+	}
+
+	for reload := range 2 {
+		selected := httptest.NewRecorder()
+		router.ServeHTTP(selected, httptest.NewRequest(http.MethodGet, opened.Header().Get("Location"), nil))
+		if got, want := selected.Code, http.StatusOK; got != want {
+			t.Fatalf("redirected page status = %d, want %d; body = %s", got, want, selected.Body.String())
+		}
+		if !strings.Contains(selected.Body.String(), `Selected account: Holiday Fund`) {
+			t.Errorf("redirected page does not select Holiday Fund; body = %s", selected.Body.String())
+		}
+		if reload == 0 {
+			for _, markup := range []string{
+				`<a href="/?account=acct-4">Holiday Fund</a>`,
+				`class="balance">$0.00`,
+				`No transactions.`,
+			} {
+				if !strings.Contains(selected.Body.String(), markup) {
+					t.Errorf("first redirected page does not contain %q; body = %s", markup, selected.Body.String())
+				}
+			}
+		}
+	}
+	if got, want := len(store.accounts), 4; got != want {
+		t.Fatalf("accounts after redirect reloads = %d, want %d", got, want)
+	}
+
+	transaction := postTransaction(router, "/api/accounts/acct-4/transactions", "application/x-www-form-urlencoded", "amount=25.00&description=First+deposit")
+	if got, want := transaction.Code, http.StatusSeeOther; got != want {
+		t.Fatalf("POST /api/accounts/acct-4/transactions status = %d, want %d; body = %s", got, want, transaction.Body.String())
+	}
+	withTransaction := httptest.NewRecorder()
+	router.ServeHTTP(withTransaction, httptest.NewRequest(http.MethodGet, "/?account=acct-4", nil))
+	if !strings.Contains(withTransaction.Body.String(), `$25.00`) {
+		t.Errorf("selected page does not display posted $25.00 transaction; body = %s", withTransaction.Body.String())
 	}
 }
 

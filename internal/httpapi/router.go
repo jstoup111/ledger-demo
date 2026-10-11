@@ -304,47 +304,62 @@ func handleAccountTransactions(store ledger.Store) http.HandlerFunc {
 func handleOpenAccount(store ledger.Store) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		mediaType, _, err := mime.ParseMediaType(r.Header.Get("Content-Type"))
-		if err != nil || mediaType != "application/json" {
+		if err == nil && mediaType == "application/json" {
+			handleJSONOpenAccount(w, r, store)
 			return
 		}
 
-		var fields map[string]json.RawMessage
-		decoder := json.NewDecoder(r.Body)
-		if err := decoder.Decode(&fields); err != nil {
-			writeJSONError(w, ledger.ErrAccountNameEmpty)
+		if err := r.ParseForm(); err != nil {
+			http.Error(w, "open account failed", http.StatusBadRequest)
 			return
 		}
-		var request struct {
-			Name *string
-		}
-		if err := json.Unmarshal(fields["name"], &request.Name); err != nil || request.Name == nil {
-			writeJSONError(w, ledger.ErrAccountNameEmpty)
-			return
-		}
-
-		account, err := ledger.OpenAccount(store, *request.Name)
+		account, err := ledger.OpenAccount(store, r.PostForm.Get("name"))
 		if err != nil {
-			coded := codeFor(err)
-			if coded.status != 0 {
-				context := messageContext{}
-				if coded.code == "account_name_too_long" {
-					context.value = strconv.Itoa(utf8.RuneCountInString(*request.Name))
-				}
-				writeJSONError(w, err, context)
-				return
-			}
-			http.Error(w, "open account failed", http.StatusInternalServerError)
+			log.Printf("open account: %v", err)
+			http.Error(w, "open account failed", http.StatusBadRequest)
 			return
 		}
-
-		w.Header().Set("Content-Type", "application/json; charset=utf-8")
-		w.WriteHeader(http.StatusCreated)
-		_ = json.NewEncoder(w).Encode(accountResponse{
-			ID:           account.ID,
-			Name:         account.Name,
-			BalanceCents: 0,
-		})
+		http.Redirect(w, r, "/?account="+url.QueryEscape(account.ID), http.StatusSeeOther)
 	}
+}
+
+func handleJSONOpenAccount(w http.ResponseWriter, r *http.Request, store ledger.Store) {
+	var fields map[string]json.RawMessage
+	decoder := json.NewDecoder(r.Body)
+	if err := decoder.Decode(&fields); err != nil {
+		writeJSONError(w, ledger.ErrAccountNameEmpty)
+		return
+	}
+	var request struct {
+		Name *string
+	}
+	if err := json.Unmarshal(fields["name"], &request.Name); err != nil || request.Name == nil {
+		writeJSONError(w, ledger.ErrAccountNameEmpty)
+		return
+	}
+
+	account, err := ledger.OpenAccount(store, *request.Name)
+	if err != nil {
+		coded := codeFor(err)
+		if coded.status != 0 {
+			context := messageContext{}
+			if coded.code == "account_name_too_long" {
+				context.value = strconv.Itoa(utf8.RuneCountInString(*request.Name))
+			}
+			writeJSONError(w, err, context)
+			return
+		}
+		http.Error(w, "open account failed", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.WriteHeader(http.StatusCreated)
+	_ = json.NewEncoder(w).Encode(accountResponse{
+		ID:           account.ID,
+		Name:         account.Name,
+		BalanceCents: 0,
+	})
 }
 
 func handlePostTransaction(store ledger.Store, clock clock.Clock) http.HandlerFunc {
