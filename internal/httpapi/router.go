@@ -60,15 +60,16 @@ type pageTransaction struct {
 }
 
 type pageData struct {
-	Accounts           []pageAccount
-	Balance            string
-	SelectedAccount    string
-	HasSelectedAccount bool
-	ErrorMessage       string
-	AccountNotFound    bool
-	RequestedAccount   string
-	FormAction         string
-	Transactions       []pageTransaction
+	Accounts                []pageAccount
+	Balance                 string
+	SelectedAccount         string
+	HasSelectedAccount      bool
+	ErrorMessage            string
+	OpenAccountErrorMessage string
+	AccountNotFound         bool
+	RequestedAccount        string
+	FormAction              string
+	Transactions            []pageTransaction
 }
 
 func handlePage(page *template.Template, store ledger.Store) http.HandlerFunc {
@@ -141,6 +142,10 @@ func handlePage(page *template.Template, store ledger.Store) http.HandlerFunc {
 			balance:      balance,
 			balanceKnown: true,
 		})
+		if errorCode == "account_name_empty" || errorCode == "account_name_too_long" {
+			data.OpenAccountErrorMessage = data.ErrorMessage
+			data.ErrorMessage = ""
+		}
 		transactions, err := store.Transactions(selected.ID)
 		if err != nil {
 			http.Error(w, "list transactions failed", http.StatusInternalServerError)
@@ -316,11 +321,28 @@ func handleOpenAccount(store ledger.Store) http.HandlerFunc {
 		account, err := ledger.OpenAccount(store, r.PostForm.Get("name"))
 		if err != nil {
 			log.Printf("open account: %v", err)
-			http.Error(w, "open account failed", http.StatusBadRequest)
+			writeOpenAccountFormError(w, r, err, r.PostForm.Get("name"))
 			return
 		}
 		http.Redirect(w, r, "/?account="+url.QueryEscape(account.ID), http.StatusSeeOther)
 	}
+}
+
+func writeOpenAccountFormError(w http.ResponseWriter, r *http.Request, err error, name string) {
+	coded := codeFor(err)
+	if coded.status == 0 {
+		http.Error(w, "open account failed", http.StatusInternalServerError)
+		return
+	}
+
+	location := "/?error=" + url.QueryEscape(coded.code)
+	if coded.code == "account_name_too_long" {
+		detail := strconv.Itoa(utf8.RuneCountInString(name))
+		if _, ok := accountNameCharacterCountCarriedValue(detail); ok {
+			location += "&detail=" + url.QueryEscape(detail)
+		}
+	}
+	http.Redirect(w, r, location, http.StatusSeeOther)
 }
 
 func handleJSONOpenAccount(w http.ResponseWriter, r *http.Request, store ledger.Store) {

@@ -45,6 +45,9 @@
       {{end}}
     </section>
 
+    {{if .OpenAccountErrorMessage}}
+    <p class="error">{{.OpenAccountErrorMessage}}</p>
+    {{end}}
     <form method="post" action="/api/accounts">
       <label>Name <input name="name" required></label>
       <button type="submit">Open account</button>

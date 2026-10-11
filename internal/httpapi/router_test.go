@@ -1,4 +1,4 @@
-// Covers: task:6, task:7, task:8, task:9
+// Covers: task:6, task:7, task:8, task:9, task:10
 package httpapi
 
 import (
@@ -1977,6 +1977,112 @@ func TestRouterPageFormOpensAndSelectsAccount(t *testing.T) {
 	router.ServeHTTP(withTransaction, httptest.NewRequest(http.MethodGet, "/?account=acct-4", nil))
 	if !strings.Contains(withTransaction.Body.String(), `$25.00`) {
 		t.Errorf("selected page does not display posted $25.00 transaction; body = %s", withTransaction.Body.String())
+	}
+}
+
+func TestRouterPageRendersOpenAccountFormRejections(t *testing.T) {
+	store := &routerTestStore{
+		accounts: []ledger.Account{
+			{ID: "acct-1", Name: "Checking"},
+			{ID: "acct-2", Name: "Savings"},
+			{ID: "acct-3", Name: "Vacation"},
+		},
+		transactions: map[string][]ledger.Transaction{},
+	}
+	router, err := NewRouter(store, routerClock)
+	if err != nil {
+		t.Fatalf("NewRouter() error = %v, want nil", err)
+	}
+
+	for _, tt := range []struct {
+		name         string
+		form         url.Values
+		wantLocation string
+		wantMessage  string
+	}{
+		{
+			name:         "empty name",
+			form:         url.Values{"name": {"   "}},
+			wantLocation: "/?error=account_name_empty",
+			wantMessage:  "Account name must not be empty.",
+		},
+		{
+			name:         "41 character name",
+			form:         url.Values{"name": {strings.Repeat("x", 41)}},
+			wantLocation: "/?error=account_name_too_long&detail=41",
+			wantMessage:  "Account name is too long. Submitted: 41 characters; the limit is 40.",
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			rejected := postTransaction(router, "/api/accounts", "application/x-www-form-urlencoded", tt.form.Encode())
+			if got, want := rejected.Code, http.StatusSeeOther; got != want {
+				t.Fatalf("form POST /api/accounts status = %d, want %d; body = %s", got, want, rejected.Body.String())
+			}
+			if got, want := rejected.Header().Get("Location"), tt.wantLocation; got != want {
+				t.Fatalf("form POST /api/accounts Location = %q, want %q", got, want)
+			}
+			if got, want := len(store.accounts), 3; got != want {
+				t.Fatalf("accounts after rejected form POST = %d, want %d", got, want)
+			}
+
+			page := httptest.NewRecorder()
+			router.ServeHTTP(page, httptest.NewRequest(http.MethodGet, tt.wantLocation, nil))
+			if got, want := page.Code, http.StatusOK; got != want {
+				t.Fatalf("redirected page status = %d, want %d; body = %s", got, want, page.Body.String())
+			}
+			body := page.Body.String()
+			messagePosition := strings.Index(body, tt.wantMessage)
+			postingFormPosition := strings.Index(body, `action="/api/accounts/acct-1/transactions"`)
+			openFormPosition := strings.Index(body, `<form method="post" action="/api/accounts">`)
+			if messagePosition < postingFormPosition || messagePosition > openFormPosition {
+				t.Errorf("open-account error must follow posting form and precede open-account form; body = %s", body)
+			}
+			if strings.Count(body, `class="error"`) != 1 {
+				t.Errorf("page error panels = %d, want 1; body = %s", strings.Count(body, `class="error"`), body)
+			}
+		})
+	}
+
+	for _, detail := range []string{"abc", "12"} {
+		t.Run("too long page detail "+detail, func(t *testing.T) {
+			page := httptest.NewRecorder()
+			router.ServeHTTP(page, httptest.NewRequest(http.MethodGet, "/?error=account_name_too_long&detail="+detail, nil))
+			body := page.Body.String()
+			if !strings.Contains(body, "Account name is too long.") || strings.Contains(body, "Submitted:") {
+				t.Errorf("page message = %q, want precisely the base too-long message", body)
+			}
+		})
+	}
+
+	for _, path := range []string{
+		"/?account=acct-nope",
+		"/?error=account_name_empty",
+	} {
+		t.Run("no forms on "+path, func(t *testing.T) {
+			handler := router
+			if path == "/?error=account_name_empty" {
+				var err error
+				handler, err = NewRouter(&routerTestStore{}, routerClock)
+				if err != nil {
+					t.Fatalf("NewRouter() error = %v, want nil", err)
+				}
+			}
+			page := httptest.NewRecorder()
+			handler.ServeHTTP(page, httptest.NewRequest(http.MethodGet, path, nil))
+			if body := page.Body.String(); strings.Contains(body, "<form") {
+				t.Errorf("page must not contain a form; body = %s", body)
+			}
+		})
+	}
+
+	opened := postTransaction(router, "/api/accounts", "application/x-www-form-urlencoded", url.Values{"name": {`<script>alert(1)</script>`}}.Encode())
+	if got, want := opened.Header().Get("Location"), "/?account=acct-4"; got != want {
+		t.Fatalf("script-name form POST Location = %q, want %q", got, want)
+	}
+	page := httptest.NewRecorder()
+	router.ServeHTTP(page, httptest.NewRequest(http.MethodGet, opened.Header().Get("Location"), nil))
+	if body := page.Body.String(); strings.Contains(body, `<script>alert(1)</script>`) || !strings.Contains(body, `&lt;script&gt;alert(1)&lt;/script&gt;`) {
+		t.Errorf("script account name must render escaped; body = %s", body)
 	}
 }
 
