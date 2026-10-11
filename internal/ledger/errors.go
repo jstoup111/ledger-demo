@@ -4,6 +4,7 @@ import "errors"
 
 var (
 	ErrAccountNotFound        = errors.New("account not found")
+	ErrAccountNameEmpty       = errors.New("account name must not be empty")
 	ErrAmountZero             = errors.New("amount must not be zero")
 	ErrDescriptionEmpty       = errors.New("description must not be empty")
 	ErrDescriptionTooLong     = errors.New("description is too long")

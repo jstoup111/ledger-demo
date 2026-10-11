@@ -1,4 +1,4 @@
-// Covers: S1.1, S1.2, S1.3, S1.4, S1.5
+// Covers: S1.1, S1.2, S1.3, S1.4, S1.5, S2.1, S2.2, S2.3
 package ledger
 
 import (
@@ -8,18 +8,60 @@ import (
 )
 
 type openStore struct {
-	accounts     []Account
-	transactions map[string][]Transaction
-	accountsErr  error
-	insertErr    error
-	insertCalls  int
+	accounts      []Account
+	transactions  map[string][]Transaction
+	accountsErr   error
+	insertErr     error
+	accountsCalls int
+	insertCalls   int
 }
 
 func (s *openStore) Accounts() ([]Account, error) {
+	s.accountsCalls++
 	if s.accountsErr != nil {
 		return nil, s.accountsErr
 	}
 	return append([]Account(nil), s.accounts...), nil
+}
+
+func TestOpenAccountRejectsBlankNames(t *testing.T) {
+	seededAccounts := []Account{
+		{ID: "acct-1", Name: "Checking"},
+		{ID: "acct-2", Name: "Savings"},
+		{ID: "acct-3", Name: "Travel"},
+	}
+
+	tests := []struct {
+		name        string
+		accountName string
+	}{
+		{name: "empty", accountName: ""},
+		{name: "spaces only", accountName: "   "},
+		{name: "mixed whitespace", accountName: " \t\n"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			store := &openStore{accounts: append([]Account(nil), seededAccounts...)}
+
+			account, err := OpenAccount(store, tt.accountName)
+
+			if account != (Account{}) || !errors.Is(err, ErrAccountNameEmpty) || len(store.accounts) != 3 || store.accountsCalls != 0 || store.insertCalls != 0 {
+				t.Fatalf("OpenAccount(%q) = %#v, %v; accounts = %d, Accounts calls = %d, InsertAccount calls = %d; want zero account, ErrAccountNameEmpty, three accounts, and no store calls", tt.accountName, account, err, len(store.accounts), store.accountsCalls, store.insertCalls)
+			}
+		})
+	}
+}
+
+func TestOpenAccountPreservesSurroundingWhitespace(t *testing.T) {
+	const name = "  Rainy Day  "
+	store := &openStore{}
+
+	account, err := OpenAccount(store, name)
+
+	if err != nil || account.Name != name || len(store.accounts) != 1 || store.accounts[0].Name != name {
+		t.Fatalf("OpenAccount(%q) = %#v, %v; stored accounts = %#v; want preserved name", name, account, err, store.accounts)
+	}
 }
 
 func (s *openStore) Account(id string) (Account, error) {
