@@ -60,9 +60,17 @@ Two properties the component boundary has to preserve, both required by determin
   one timestamp, so ordering falls back to identifier order when timestamps tie. This needs no
   schema change; see `.docs/architecture/erd.md`.
 
+## Opening accounts (open-a-new-account)
+
+`internal/ledger` gains `OpenAccount` and two sentinels, and the `Store` interface it declares gains
+`InsertAccount` (already implemented by `internal/store`). `internal/httpapi` gains the negotiated
+`POST /api/accounts` route and orders accounts by id sequence; `web` gains an open-account form. No
+new package and no new dependency arrow: every relationship in the diagram above already exists.
+
 ## Change Log
 
 | Date | Change | Reason |
 |------|--------|--------|
 | 2026-08-08 | Initial generation | Created during `/bootstrap` |
 | 2026-08-08 | Status: Skeleton → Planned; "Current state" became a today/after table; added ordering-and-identity notes | base-ledger DECIDE pass — the spec now specifies the package contents |
+| 2026-10-10 | Added opening-accounts note; no relationship changed | open-a-new-account DECIDE pass |

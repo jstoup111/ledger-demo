@@ -116,6 +116,48 @@ serialising it would mean adding transaction-isolation machinery that makes the 
 read on a projector. It is documented here so it is a known property rather than a discovered
 surprise. No requirement in the base-ledger spec asks for it to be addressed.
 
+## 3. `POST /api/accounts` — open an account (specified by open-a-new-account, not yet built)
+
+Delivered in two stacked children: child 1 builds the domain half (`OpenAccount` → `Store`), child 2
+the HTTP half. Negotiation is the same rule as flow 2: a JSON body gets the created account, any
+other body is treated as the page's form.
+
+```mermaid
+sequenceDiagram
+  actor Presenter
+  participant API as internal/httpapi
+  participant Domain as internal/ledger
+  participant Store as internal/store
+  participant DB as ledger.db
+
+  Presenter->>API: POST /api/accounts (name)
+  API->>Domain: OpenAccount(name)
+  Note over Domain: Validate: name not blank,<br/>at most 40 characters
+  Domain->>Store: Accounts()
+  Store->>DB: SELECT
+  DB-->>Store: rows
+  Store-->>Domain: accounts (count n)
+  Note over Domain: id = acct-«n+1»
+  Domain->>Store: InsertAccount(account)
+  Store->>DB: INSERT
+  DB-->>Store: ok
+  Store-->>Domain: ok
+  Domain-->>API: account
+
+  alt form-encoded body — the page form
+    API-->>Presenter: 303 See Other, Location /?account=acct-«n+1»
+  else JSON body — a programmatic client
+    API-->>Presenter: 201 JSON, id + name + balance_cents 0
+  end
+```
+
+On a rejection the domain returns `ErrAccountNameEmpty` or `ErrAccountNameTooLong` and records
+nothing. A JSON caller gets `400` with `account_name_empty` / `account_name_too_long`; a form caller
+is redirected to `/?error=«code»` (plus `detail=«character count»` for too-long), and the page renders
+that message above the open-account form, not above the posting form. Account ids sort by their
+numeric sequence wherever accounts are listed
+(`.docs/decisions/adr-2026-10-10-sequential-account-ids-ordered-by-sequence.md`).
+
 ## Error rendering
 
 Domain sentinels map to typed JSON codes plus a human-readable message
@@ -128,3 +170,4 @@ errors visibly rather than silently swallowing them.
 |------|--------|--------|
 | 2026-08-08 | Initial generation | Created during `/bootstrap` |
 | 2026-08-08 | POST flow shows both response modes; added the rejection flow; `{id}` → `«id»`; trimmed a trailing aside from the known-characteristic note | base-ledger DECIDE pass — one endpoint now serves the browser form and programmatic clients |
+| 2026-10-10 | Added flow 3, opening an account (both response modes and the rejection path) | open-a-new-account DECIDE pass |
