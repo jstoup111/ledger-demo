@@ -47,9 +47,10 @@ These are settled. See `.docs/decisions/` for the reasoning.
 
 ## Rejections
 
-Rejections use these seven identifiers: `account_not_found`, `amount_zero`,
-`description_empty`, `description_too_long`, `amount_malformed`,
-`balance_would_go_negative`, and `balance_overflow`. Messages use the shape
+Rejections use these nine identifiers: `account_not_found`, `account_name_empty`,
+`account_name_too_long`, `amount_zero`, `description_empty`,
+`description_too_long`, `amount_malformed`, `balance_would_go_negative`, and
+`balance_overflow`. Messages use the shape
 `<rule sentence>. <value sentence>` when a safe, relevant rejected value is
 available. For example: `Amount must not be zero. Submitted: 0.00.`
 
