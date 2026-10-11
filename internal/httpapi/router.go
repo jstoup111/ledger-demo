@@ -10,7 +10,6 @@ import (
 	"mime"
 	"net/http"
 	"net/url"
-	"sort"
 	"strconv"
 	"time"
 	"unicode/utf8"
@@ -80,7 +79,7 @@ func handlePage(page *template.Template, store ledger.Store) http.HandlerFunc {
 			return
 		}
 		accounts = append([]ledger.Account(nil), accounts...)
-		sort.Slice(accounts, func(i, j int) bool { return accounts[i].ID < accounts[j].ID })
+		ledger.SortAccounts(accounts)
 		query := r.URL.Query()
 		errorCode := query.Get("error")
 		detail := query.Get("detail")
@@ -255,7 +254,7 @@ func handleAccounts(store ledger.Store) http.HandlerFunc {
 		}
 
 		accounts = append([]ledger.Account(nil), accounts...)
-		sort.Slice(accounts, func(i, j int) bool { return accounts[i].ID < accounts[j].ID })
+		ledger.SortAccounts(accounts)
 
 		response := make([]accountResponse, 0, len(accounts))
 		for _, account := range accounts {

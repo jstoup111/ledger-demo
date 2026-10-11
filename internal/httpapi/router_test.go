@@ -1,4 +1,4 @@
-// Covers: task:6, task:7, task:8, task:9, task:10
+// Covers: task:6, task:7, task:8, task:9, task:10, task:12
 package httpapi
 
 import (
@@ -15,6 +15,7 @@ import (
 	"net/url"
 	"reflect"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -1978,6 +1979,94 @@ func TestRouterPageFormOpensAndSelectsAccount(t *testing.T) {
 	if !strings.Contains(withTransaction.Body.String(), `$25.00`) {
 		t.Errorf("selected page does not display posted $25.00 transaction; body = %s", withTransaction.Body.String())
 	}
+}
+
+func TestRouterListsAccountsInSequenceOrder(t *testing.T) {
+	newSeededRouter := func(t *testing.T) http.Handler {
+		t.Helper()
+		router, err := NewRouter(&routerTestStore{accounts: []ledger.Account{
+			{ID: "acct-1", Name: "Everyday Checking"},
+			{ID: "acct-2", Name: "Weekend Savings"},
+			{ID: "acct-3", Name: "Project Fund"},
+		}}, routerClock)
+		if err != nil {
+			t.Fatalf("NewRouter() error = %v, want nil", err)
+		}
+		return router
+	}
+
+	accountIDs := func(t *testing.T, router http.Handler) []string {
+		t.Helper()
+		recorder := httptest.NewRecorder()
+		router.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/api/accounts", nil))
+		if got, want := recorder.Code, http.StatusOK; got != want {
+			t.Fatalf("GET /api/accounts status = %d, want %d; body = %s", got, want, recorder.Body.String())
+		}
+		var accounts []accountResponse
+		if err := json.Unmarshal(recorder.Body.Bytes(), &accounts); err != nil {
+			t.Fatalf("GET /api/accounts response is not JSON: %v; body = %s", err, recorder.Body.String())
+		}
+		ids := make([]string, len(accounts))
+		for index, account := range accounts {
+			ids[index] = account.ID
+		}
+		return ids
+	}
+
+	navigationPositions := func(t *testing.T, router http.Handler, ids []string) []int {
+		t.Helper()
+		recorder := httptest.NewRecorder()
+		router.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/", nil))
+		if got, want := recorder.Code, http.StatusOK; got != want {
+			t.Fatalf("GET / status = %d, want %d; body = %s", got, want, recorder.Body.String())
+		}
+		body := recorder.Body.String()
+		if !strings.Contains(body, "Selected account: Everyday Checking") {
+			t.Errorf("default page does not select acct-1; body = %s", body)
+		}
+		positions := make([]int, len(ids))
+		for index, id := range ids {
+			positions[index] = strings.Index(body, `href="/?account=`+id+`"`)
+			if positions[index] < 0 {
+				t.Fatalf("page does not contain navigation link for %q; body = %s", id, body)
+			}
+			if index > 0 && positions[index-1] >= positions[index] {
+				t.Errorf("navigation positions = %v, want ids in sequence order", positions)
+			}
+		}
+		return positions
+	}
+
+	t.Run("seeded accounts stay in sequence order", func(t *testing.T) {
+		router := newSeededRouter(t)
+		wantIDs := []string{"acct-1", "acct-2", "acct-3"}
+		if got := accountIDs(t, router); !reflect.DeepEqual(got, wantIDs) {
+			t.Errorf("GET /api/accounts ids = %v, want %v", got, wantIDs)
+		}
+		navigationPositions(t, router, wantIDs)
+	})
+
+	t.Run("twelve accounts stay in sequence order", func(t *testing.T) {
+		router := newSeededRouter(t)
+		for accountNumber := 4; accountNumber <= 12; accountNumber++ {
+			recorder := postTransaction(router, "/api/accounts", "application/json", `{"name":"Account `+strconv.Itoa(accountNumber)+`"}`)
+			if got, want := recorder.Code, http.StatusCreated; got != want {
+				t.Fatalf("POST /api/accounts for acct-%d status = %d, want %d; body = %s", accountNumber, got, want, recorder.Body.String())
+			}
+		}
+
+		wantIDs := []string{
+			"acct-1", "acct-2", "acct-3", "acct-4", "acct-5", "acct-6",
+			"acct-7", "acct-8", "acct-9", "acct-10", "acct-11", "acct-12",
+		}
+		if got := accountIDs(t, router); !reflect.DeepEqual(got, wantIDs) {
+			t.Errorf("GET /api/accounts ids = %v, want %v", got, wantIDs)
+		}
+		positions := navigationPositions(t, router, wantIDs)
+		if positions[8] >= positions[9] {
+			t.Errorf("acct-10 navigation link must occur after acct-9; positions = %v", positions)
+		}
+	})
 }
 
 func TestRouterPageRendersOpenAccountFormRejections(t *testing.T) {
