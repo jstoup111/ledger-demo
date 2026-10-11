@@ -4,6 +4,13 @@ spec_hash: 18968d4d2728c22bc58a0313600bb1670832ea75c6fe01ba50a9f81544eb4284
 pr: https://github.com/jstoup111/ledger-demo/pull/87
 shipped: 2026-10-11
 engine_version: 20261011T113509Z-bd1488cfe309
+findings:
+  - gate: prd_audit
+    grade: OVER_SCOPE
+    criterion: NC-1
+    summary: "Verified with 98% confidence: this committed runner is additional build-harness functionality beyond the account-opening plan. It does not alter ledger or user-facing behavior, so the widening is harmless but unowned."
+    accepted: false
+    authority: engine
 ---
 
 ## Cost
