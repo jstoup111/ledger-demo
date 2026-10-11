@@ -2,6 +2,10 @@ package ledger
 
 type fakeStore struct{}
 
+func (fakeStore) InsertAccount(Account) error {
+	return nil
+}
+
 func (fakeStore) Accounts() ([]Account, error) {
 	return nil, nil
 }

@@ -59,6 +59,11 @@ func (s *transactionCountingRouterStore) Transactions(accountID string) ([]ledge
 	return s.Store.Transactions(accountID)
 }
 
+func (s *routerTestStore) InsertAccount(account ledger.Account) error {
+	s.accounts = append(s.accounts, account)
+	return nil
+}
+
 func (s failingRouterStore) Accounts() ([]ledger.Account, error) {
 	if s.accountsErr != nil {
 		return nil, s.accountsErr
