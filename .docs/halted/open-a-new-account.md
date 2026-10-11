@@ -1,6 +1,8 @@
 # Halt record
 
-Status: halted
+Status: resolved
+Resolution cause: operator
+Resolved at: 2026-10-11T06:21:52.279Z
 Slug: open-a-new-account
 Class: needs-human
 Halting step: rebase
