@@ -1,4 +1,4 @@
-// Covers: task:6, task:7
+// Covers: task:6, task:7, task:8
 package httpapi
 
 import (
@@ -1960,6 +1960,63 @@ func TestRouterRejectsMalformedJSONAccountRequestsWithoutOpeningAccounts(t *test
 				t.Errorf("GET /api/accounts = %#v, want %#v", got, want)
 			}
 		})
+	}
+}
+
+func TestRouterRejectsInvalidJSONAccountNamesWithoutOpeningAccounts(t *testing.T) {
+	store := &routerTestStore{accounts: []ledger.Account{
+		{ID: "acct-1", Name: "Checking"},
+		{ID: "acct-2", Name: "Savings"},
+		{ID: "acct-3", Name: "Vacation"},
+	}}
+	router, err := NewRouter(store, routerClock)
+	if err != nil {
+		t.Fatalf("NewRouter() error = %v, want nil", err)
+	}
+
+	for _, tt := range []struct {
+		name string
+		body string
+		want string
+	}{
+		{
+			name: "whitespace-only name",
+			body: `{"name":"   "}`,
+			want: `{"error":{"code":"account_name_empty","message":"Account name must not be empty."}}`,
+		},
+		{
+			name: "41-character name",
+			body: `{"name":"` + strings.Repeat("x", 41) + `"}`,
+			want: `{"error":{"code":"account_name_too_long","message":"Account name is too long. Submitted: 41 characters; the limit is 40."}}`,
+		},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			rejected := postTransaction(router, "/api/accounts", "application/json", tt.body)
+			if got, want := rejected.Code, http.StatusBadRequest; got != want {
+				t.Errorf("POST /api/accounts status = %d, want %d; body = %s", got, want, rejected.Body.String())
+			}
+			if got, want := rejected.Body.String(), tt.want; got != want {
+				t.Errorf("POST /api/accounts body = %q, want %q", got, want)
+			}
+		})
+	}
+
+	accounts := httptest.NewRecorder()
+	router.ServeHTTP(accounts, httptest.NewRequest(http.MethodGet, "/api/accounts", nil))
+	var listed []accountResponse
+	if err := json.Unmarshal(accounts.Body.Bytes(), &listed); err != nil {
+		t.Fatalf("GET /api/accounts response is not JSON: %v; body = %s", err, accounts.Body.String())
+	}
+	if got, want := len(listed), 3; got != want {
+		t.Fatalf("GET /api/accounts count = %d, want %d", got, want)
+	}
+
+	created := postTransaction(router, "/api/accounts", "application/json", `{"name":"Holiday Fund"}`)
+	if got, want := created.Code, http.StatusCreated; got != want {
+		t.Fatalf("successful POST /api/accounts status = %d, want %d; body = %s", got, want, created.Body.String())
+	}
+	if got, want := created.Body.String(), `{"id":"acct-4","name":"Holiday Fund","balance_cents":0}`+"\n"; got != want {
+		t.Errorf("successful POST /api/accounts body = %q, want %q", got, want)
 	}
 }
 

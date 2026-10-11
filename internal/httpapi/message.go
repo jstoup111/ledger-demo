@@ -26,6 +26,13 @@ func messageFor(identifier string, context messageContext) string {
 			return "Account not found. Requested: " + accountID + "."
 		}
 		return "Account not found."
+	case "account_name_empty":
+		return "Account name must not be empty."
+	case "account_name_too_long":
+		if value, ok := accountNameCharacterCountCarriedValue(context.value); ok {
+			return "Account name is too long. Submitted: " + value + " characters; the limit is 40."
+		}
+		return "Account name is too long."
 	case "amount_zero":
 		if value, ok := zeroAmountCarriedValue(context.value); ok {
 			return "Amount must not be zero. Submitted: " + value + "."
@@ -122,6 +129,14 @@ func malformedAmountCarriedValue(value string) (string, bool) {
 }
 
 func characterCountCarriedValue(value string) (string, bool) {
+	return characterCountCarriedValueOver(value, 140)
+}
+
+func accountNameCharacterCountCarriedValue(value string) (string, bool) {
+	return characterCountCarriedValueOver(value, 40)
+}
+
+func characterCountCarriedValueOver(value string, limit int) (string, bool) {
 	if len(value) == 0 || len(value) > 6 || value[0] == '0' {
 		return "", false
 	}
@@ -133,7 +148,7 @@ func characterCountCarriedValue(value string) (string, bool) {
 	}
 
 	count, err := strconv.Atoi(value)
-	if err != nil || count <= 140 {
+	if err != nil || count <= limit {
 		return "", false
 	}
 

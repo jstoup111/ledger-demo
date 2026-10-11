@@ -324,6 +324,15 @@ func handleOpenAccount(store ledger.Store) http.HandlerFunc {
 
 		account, err := ledger.OpenAccount(store, *request.Name)
 		if err != nil {
+			coded := codeFor(err)
+			if coded.status != 0 {
+				context := messageContext{}
+				if coded.code == "account_name_too_long" {
+					context.value = strconv.Itoa(utf8.RuneCountInString(*request.Name))
+				}
+				writeJSONError(w, err, context)
+				return
+			}
 			http.Error(w, "open account failed", http.StatusInternalServerError)
 			return
 		}

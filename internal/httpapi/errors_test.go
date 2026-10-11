@@ -1,3 +1,4 @@
+// Covers: task:8
 package httpapi
 
 import (
@@ -17,6 +18,16 @@ func TestFrozenRejectionIdentifierStatusContract(t *testing.T) {
 		err  error
 		want codedError
 	}{
+		{
+			name: "account name empty",
+			err:  fmt.Errorf("opening account: %w", ledger.ErrAccountNameEmpty),
+			want: codedError{status: http.StatusBadRequest, code: "account_name_empty"},
+		},
+		{
+			name: "account name too long",
+			err:  fmt.Errorf("opening account: %w", ledger.ErrAccountNameTooLong),
+			want: codedError{status: http.StatusBadRequest, code: "account_name_too_long"},
+		},
 		{
 			name: "account not found",
 			err:  fmt.Errorf("lookup account: %w", ledger.ErrAccountNotFound),
