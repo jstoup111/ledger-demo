@@ -1,5 +1,7 @@
 package httpapi
 
+// Covers: task:1
+
 import (
 	"bytes"
 	"encoding/json"
@@ -332,6 +334,66 @@ func TestRouterRendersAccountPageMarkup(t *testing.T) {
 			t.Errorf("empty account does not show an explicit transaction empty state; body = %s", body)
 		}
 	})
+}
+
+func TestRouterRendersTransactionCount(t *testing.T) {
+	createdAt := time.Date(2026, time.August, 8, 14, 30, 0, 0, time.UTC)
+	store := routerTestStore{
+		accounts: []ledger.Account{
+			{ID: "acct-1", Name: "Checking"},
+			{ID: "acct-2", Name: "Savings"},
+		},
+		transactions: map[string][]ledger.Transaction{
+			"acct-1": {
+				{ID: "txn-0001", AccountID: "acct-1", Amount: 10000, Description: "First", CreatedAt: createdAt},
+				{ID: "txn-0002", AccountID: "acct-1", Amount: 20000, Description: "Second", CreatedAt: createdAt.Add(time.Minute)},
+				{ID: "txn-0003", AccountID: "acct-1", Amount: 30000, Description: "Third", CreatedAt: createdAt.Add(2 * time.Minute)},
+			},
+		},
+	}
+	router, err := NewRouter(&store, routerClock)
+	if err != nil {
+		t.Fatalf("NewRouter() error = %v, want nil", err)
+	}
+
+	for _, tt := range []struct {
+		name          string
+		path          string
+		wantCountLine bool
+		wantEmptyText bool
+	}{
+		{name: "default selected account count equals its displayed rows", path: "/", wantCountLine: true},
+		{name: "empty account has no count and retains its empty text", path: "/?account=acct-2", wantEmptyText: true},
+		{name: "unknown account has no count", path: "/?account=missing"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			rec := httptest.NewRecorder()
+			router.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, tt.path, nil))
+			body := rec.Body.String()
+			countLines := strings.Count(body, "Transactions:")
+			rows := strings.Count(body, "<tr><td>")
+
+			if tt.wantCountLine {
+				const countElement = `<p class="transaction-count">Transactions: 3</p>`
+				countPosition := strings.Index(body, countElement)
+				tablePosition := strings.Index(body, "</table>")
+				if countLines != 1 || tablePosition < 0 || countPosition <= tablePosition || rows != 3 {
+					t.Errorf("count lines = %d, count element position = %d, table position = %d, displayed rows = %d; want exactly one %q after the table with 3 displayed rows; body = %s", countLines, countPosition, tablePosition, rows, countElement, body)
+				}
+				if tablePosition >= 0 && countPosition >= 0 {
+					between := strings.TrimSpace(body[tablePosition+len("</table>") : countPosition])
+					if between != "" {
+						t.Errorf("content between table and count = %q, want empty; body = %s", between, body)
+					}
+				}
+				return
+			}
+
+			if countLines != 0 || (tt.wantEmptyText && !strings.Contains(body, "No transactions.")) {
+				t.Errorf("count lines = %d, empty text present = %t; want no transaction count%s; body = %s", countLines, strings.Contains(body, "No transactions."), map[bool]string{true: " and unchanged empty text", false: ""}[tt.wantEmptyText], body)
+			}
+		})
+	}
 }
 
 func TestRouterRendersPageErrorStates(t *testing.T) {
