@@ -1,27 +1,20 @@
 # Halt record
 
-Status: resolved
-Resolution cause: operator
-Resolved at: 2026-10-11T06:14:15.375Z
+Status: halted
 Slug: open-a-new-account
 Class: needs-human
-Halting step: unknown
-Phase: unknown
+Halting step: rebase
+Phase: SHIP
 Branch: feat/daemon-open-a-new-account
 Child: 2
-Head SHA: 47f9d70f356028f2081589750ac9feb5a7db9fab
-Halted at: 2026-10-11T02:42:02.405Z
+Head SHA: 6d69667d1b7c2e49d07920941d69f400442f3b6c
+Halted at: 2026-10-11T06:14:34.362Z
 
 Push status: this record may be ahead of the remote; push is not guaranteed.
 
 ## HALT
 
 ```text
-conductor error: Error: Expected last_step to match before record last completed step
-    at Conductor.applyStateBatch (file:///home/james-stoup/code/ai-conductor/src/conductor/dist-versions/20261011T003623Z-5f233d35b433/chunk-IFV34QRY.js:21713:36)
-    at async Conductor.saveConductorStepStatus (file:///home/james-stoup/code/ai-conductor/src/conductor/dist-versions/20261011T003623Z-5f233d35b433/chunk-IFV34QRY.js:21804:20)
-    at async Conductor.run (file:///home/james-stoup/code/ai-conductor/src/conductor/dist-versions/20261011T003623Z-5f233d35b433/chunk-IFV34QRY.js:26892:9)
-    at async Object.runConductorInWorktree (file:///home/james-stoup/code/ai-conductor/src/conductor/dist-versions/20261011T003623Z-5f233d35b433/daemon-cli-PZTP2C54.js:6030:36)
-    at async file:///home/james-stoup/code/ai-conductor/src/conductor/dist-versions/20261011T003623Z-5f233d35b433/daemon-cli-PZTP2C54.js:3350:36
-    at async runFeature (file:///home/james-stoup/code/ai-conductor/src/conductor/dist-versions/20261011T003623Z-5f233d35b433/daemon-cli-PZTP2C54.js:1915:18)
+completed BUILD evidence is unavailable after rebase: 2/7 tasks pending/not completed: 7, 8 — 7 "Malformed JSON bodies and unsupported methods"; 8 "Codes and messages for the two name rules"
+Recover .pipeline task evidence before resuming; do not redispatch completed BUILD blindly.
 ```
