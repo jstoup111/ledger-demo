@@ -6,7 +6,7 @@ import "fmt"
 func OpenAccount(store Store, name string) (Account, error) {
 	accounts, err := store.Accounts()
 	if err != nil {
-		return Account{}, err
+		return Account{}, fmt.Errorf("opening account: %w", err)
 	}
 
 	account := Account{
@@ -14,7 +14,7 @@ func OpenAccount(store Store, name string) (Account, error) {
 		Name: name,
 	}
 	if err := store.InsertAccount(account); err != nil {
-		return Account{}, err
+		return Account{}, fmt.Errorf("opening account: %w", err)
 	}
 	return account, nil
 }

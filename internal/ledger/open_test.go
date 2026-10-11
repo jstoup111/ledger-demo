@@ -1,7 +1,8 @@
-// Covers: S1.1, S1.2, S1.3
+// Covers: S1.1, S1.2, S1.3, S1.4, S1.5
 package ledger
 
 import (
+	"errors"
 	"reflect"
 	"testing"
 )
@@ -9,9 +10,15 @@ import (
 type openStore struct {
 	accounts     []Account
 	transactions map[string][]Transaction
+	accountsErr  error
+	insertErr    error
+	insertCalls  int
 }
 
 func (s *openStore) Accounts() ([]Account, error) {
+	if s.accountsErr != nil {
+		return nil, s.accountsErr
+	}
 	return append([]Account(nil), s.accounts...), nil
 }
 
@@ -36,6 +43,10 @@ func (s *openStore) CountTransactions() (int, error) { return 0, nil }
 func (s *openStore) Append(Transaction) error { return nil }
 
 func (s *openStore) InsertAccount(account Account) error {
+	s.insertCalls++
+	if s.insertErr != nil {
+		return s.insertErr
+	}
 	s.accounts = append(s.accounts, account)
 	return nil
 }
@@ -115,4 +126,31 @@ func TestOpenAccount(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestOpenAccountStorageFailures(t *testing.T) {
+	storageErr := errors.New("storage unavailable")
+	insertErr := errors.New("insert unavailable")
+	accountNameEmpty := errors.New("account name empty")
+	accountNameTooLong := errors.New("account name too long")
+
+	t.Run("does not insert when listing accounts fails", func(t *testing.T) {
+		store := &openStore{accountsErr: storageErr}
+
+		account, err := OpenAccount(store, "Holiday Fund")
+
+		if account != (Account{}) || err.Error() != "opening account: storage unavailable" || !errors.Is(err, storageErr) || errors.Is(err, accountNameEmpty) || errors.Is(err, accountNameTooLong) || store.insertCalls != 0 {
+			t.Fatalf("OpenAccount() = %#v, %v; insert calls = %d; want zero account, storage error only, and zero insert calls", account, err, store.insertCalls)
+		}
+	})
+
+	t.Run("returns no account when inserting fails", func(t *testing.T) {
+		store := &openStore{insertErr: insertErr}
+
+		account, err := OpenAccount(store, "Holiday Fund")
+
+		if account != (Account{}) || err.Error() != "opening account: insert unavailable" || !errors.Is(err, insertErr) {
+			t.Fatalf("OpenAccount() = %#v, %v; want zero account and insert error", account, err)
+		}
+	})
 }
