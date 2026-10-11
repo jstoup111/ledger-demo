@@ -99,6 +99,48 @@ func TestSQLiteInsertsAndReadsAccounts(t *testing.T) {
 	}
 }
 
+// Covers: task:3
+func TestSQLiteOpensAccountDeterministically(t *testing.T) {
+	seededAccounts := []ledger.Account{
+		{ID: "acct-1", Name: "Checking"},
+		{ID: "acct-2", Name: "Savings"},
+		{ID: "acct-3", Name: "Travel"},
+	}
+
+	var opened []ledger.Account
+	for range 2 {
+		store, err := Open(":memory:")
+		if err != nil {
+			t.Fatalf("Open() error = %v", err)
+		}
+		t.Cleanup(func() { _ = store.db.Close() })
+
+		for _, account := range seededAccounts {
+			if err := store.InsertAccount(account); err != nil {
+				t.Fatalf("InsertAccount(%q) error = %v", account.ID, err)
+			}
+		}
+
+		account, err := ledger.OpenAccount(store, "Holiday Fund")
+		if err != nil {
+			t.Fatalf("OpenAccount() error = %v", err)
+		}
+		opened = append(opened, account)
+
+		persisted, err := store.Account("acct-4")
+		if err != nil {
+			t.Fatalf("Account(\"acct-4\") error = %v", err)
+		}
+		if want := (ledger.Account{ID: "acct-4", Name: "Holiday Fund"}); persisted != want {
+			t.Errorf("Account(\"acct-4\") = %#v, want %#v", persisted, want)
+		}
+	}
+
+	if want := []ledger.Account{{ID: "acct-4", Name: "Holiday Fund"}, {ID: "acct-4", Name: "Holiday Fund"}}; !reflect.DeepEqual(opened, want) {
+		t.Errorf("opened accounts = %#v, want %#v", opened, want)
+	}
+}
+
 func TestSQLiteAppendsTransactionsAndCountsAllAccounts(t *testing.T) {
 	store, err := Open(":memory:")
 	if err != nil {
