@@ -207,7 +207,9 @@ task depends on a slice 2 task.
 - `internal/httpapi/router.go` — body decoding rules
 - `internal/httpapi/router_test.go` — malformed-body tests
 
-**Dependencies:** Task 6
+**Dependencies:** Task 6, Task 8
+
+> **Amended 2026-10-11 by operator review — build halt, cyclic Task 7/8 dependency:** Task 7 asserts the `account_name_empty` code that only Task 8 maps, so Task 7 now depends on Task 8 and Task 8 no longer depends on Task 7.
 
 ### Task 8: Codes and messages for the two name rules
 **Story:** Story 5
@@ -231,7 +233,9 @@ task depends on a slice 2 task.
 - `internal/httpapi/router.go` — rejection context on the JSON branch
 - `internal/httpapi/router_test.go` — JSON rejection body tests
 
-**Dependencies:** Task 5, Task 7
+**Dependencies:** Task 5, Task 6
+
+> **Amended 2026-10-11 by operator review — build halt, cyclic Task 7/8 dependency:** Task 7 asserts the `account_name_empty` code that only Task 8 maps, so Task 7 now depends on Task 8 and Task 8 no longer depends on Task 7.
 
 ### Task 9: The page's open-account form opens and selects the account
 **Story:** Story 6
@@ -321,8 +325,9 @@ task depends on a slice 2 task.
 
 ```
 Slice 1 (domain):            Slice 2 (HTTP and page):
-T1 -> T2 -> T4 -> T5         T1 -> T6 -> T7 -> T8 (also needs T5) -> T10
-T1 -> T3                     T6 -> T9 -> T10
+T1 -> T2 -> T4 -> T5         T1 -> T6 -> T8 (also needs T5) -> T7
+T1 -> T3                     T8 -> T10
+                             T6 -> T9 -> T10
                              T11 -> T12 (also needs T6)
 ```
 
