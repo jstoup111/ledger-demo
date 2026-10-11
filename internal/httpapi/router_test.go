@@ -2013,7 +2013,7 @@ func TestRouterListsAccountsInSequenceOrder(t *testing.T) {
 		return ids
 	}
 
-	navigationPositions := func(t *testing.T, router http.Handler, ids []string) []int {
+	navigationPositions := func(t *testing.T, router http.Handler, ids []string) {
 		t.Helper()
 		recorder := httptest.NewRecorder()
 		router.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/", nil))
@@ -2034,7 +2034,6 @@ func TestRouterListsAccountsInSequenceOrder(t *testing.T) {
 				t.Errorf("navigation positions = %v, want ids in sequence order", positions)
 			}
 		}
-		return positions
 	}
 
 	t.Run("seeded accounts stay in sequence order", func(t *testing.T) {
@@ -2062,10 +2061,7 @@ func TestRouterListsAccountsInSequenceOrder(t *testing.T) {
 		if got := accountIDs(t, router); !reflect.DeepEqual(got, wantIDs) {
 			t.Errorf("GET /api/accounts ids = %v, want %v", got, wantIDs)
 		}
-		positions := navigationPositions(t, router, wantIDs)
-		if positions[8] >= positions[9] {
-			t.Errorf("acct-10 navigation link must occur after acct-9; positions = %v", positions)
-		}
+		navigationPositions(t, router, wantIDs)
 	})
 }
 
